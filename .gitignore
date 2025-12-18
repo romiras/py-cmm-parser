@@ -17,6 +17,13 @@ __pycache__/
 # uv cache (if applicable)
 uv_cache/
 
+# SQLite databases
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
 # agents
 AGENTS.md
 GEMINI.md
+
