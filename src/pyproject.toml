@@ -1,0 +1,12 @@
+[project]
+name = "py-cmm-parser"
+version = "0.1.0"
+description = "Rosetta-CMM Parser"
+readme = "README.md"
+requires-python = ">=3.12.4"
+dependencies = [
+    "rich>=14.2.0",
+    "tree-sitter>=0.25.2",
+    "tree-sitter-python>=0.25.0",
+    "typer>=0.20.0",
+]

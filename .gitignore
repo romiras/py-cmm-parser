@@ -1,0 +1,22 @@
+# Virtual environment
+src/.venv/
+
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyd
+*.pyo
+
+# Editor/IDE files
+.vscode/
+.idea/
+
+# Operating system files
+.DS_Store
+
+# uv cache (if applicable)
+uv_cache/
+
+# agents
+AGENTS.md
+GEMINI.md
