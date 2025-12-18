@@ -4,9 +4,11 @@ from pathlib import Path
 from rich.tree import Tree
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.table import Table
 from parser import TreeSitterParser
 from domain import CMMEntity
 from storage import SQLiteStorage
+from resolver import DependencyResolver
 
 app = typer.Typer(help="Root CLI for CMM tools.")
 parser_app = typer.Typer(help="Tools for parsing source code into CMM entities.")
@@ -111,6 +113,70 @@ def scan_directory(
     if errors > 0:
         console.print(f"[yellow]⚠ {errors} file(s) had errors.[/yellow]")
     console.print(f"[cyan]Database: {db_path}[/cyan]")
+
+@parser_app.command(name="resolve")
+def resolve_dependencies(
+    file_path: str,
+    db_path: str = typer.Option("./cmm.db", "--db-path", help="Path to SQLite database."),
+    entity: str = typer.Option(None, "--entity", help="Filter by specific entity name."),
+    json_output: bool = typer.Option(False, "--json", help="Output as JSON."),
+):
+    """
+    Resolve cross-file dependencies for a given file.
+    """
+    resolver = DependencyResolver(db_path)
+    
+    # Check if file exists in database
+    file_path_obj = Path(file_path)
+    if not file_path_obj.exists():
+        console.print(f"[red]Error: File '{file_path}' does not exist.[/red]")
+        raise typer.Exit(1)
+    
+    # Get absolute path
+    abs_file_path = str(file_path_obj.absolute())
+    
+    # Resolve dependencies
+    dependencies = resolver.resolve_dependencies(abs_file_path)
+    
+    if not dependencies:
+        console.print(f"[yellow]No external dependencies found for '{file_path}'.[/yellow]")
+        return
+    
+    # Filter by entity if specified
+    if entity:
+        if entity in dependencies:
+            dependencies = {entity: dependencies[entity]}
+        else:
+            console.print(f"[yellow]Entity '{entity}' not found in '{file_path}'.[/yellow]")
+            return
+    
+    if json_output:
+        # Output as JSON
+        graph = resolver.get_dependency_graph(abs_file_path)
+        print(json.dumps(graph, indent=2))
+    else:
+        # Display as rich table
+        console.print(f"\n[cyan]Dependencies for: {file_path}[/cyan]\n")
+        
+        for entity_name, resolved_deps in dependencies.items():
+            table = Table(title=f"Entity: {entity_name}", show_header=True)
+            table.add_column("Dependency", style="cyan")
+            table.add_column("Type", style="magenta")
+            table.add_column("CMM Type", style="blue")
+            table.add_column("Visibility", style="green")
+            table.add_column("File", style="yellow")
+            
+            for dep in resolved_deps:
+                table.add_row(
+                    dep.entity_name,
+                    dep.entity_type,
+                    dep.cmm_type,
+                    dep.visibility,
+                    dep.file_path
+                )
+            
+            console.print(table)
+            console.print()
 
 if __name__ == "__main__":
     app()
