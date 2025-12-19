@@ -113,13 +113,13 @@ class LSPClient:
         
         try:
             # Start pyright langserver via Python module
+            # CRITICAL: Use pyright.langserver (not pyright) with --stdio flag
             self.process = subprocess.Popen(
-                ['python', '-m', 'pyright', '--langserver'],
+                ['python', '-m', 'pyright.langserver', '--stdio'],
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                text=True,
-                bufsize=0
+                # Binary mode for proper LSP protocol handling
             )
             
             # Send initialize request
@@ -252,8 +252,11 @@ class LSPClient:
             return None
         
         try:
+            # Encode message and calculate Content-Length in BYTES (not characters)
             message = json.dumps(request)
-            content = f"Content-Length: {len(message)}\r\n\r\n{message}"
+            message_bytes = message.encode('utf-8')
+            header = f"Content-Length: {len(message_bytes)}\r\n\r\n"
+            content = header.encode('utf-8') + message_bytes
             
             self.process.stdin.write(content)
             self.process.stdin.flush()
@@ -271,8 +274,11 @@ class LSPClient:
             return
         
         try:
+            # Encode notification and calculate Content-Length in BYTES
             message = json.dumps(notification)
-            content = f"Content-Length: {len(message)}\r\n\r\n{message}"
+            message_bytes = message.encode('utf-8')
+            header = f"Content-Length: {len(message_bytes)}\r\n\r\n"
+            content = header.encode('utf-8') + message_bytes
             
             self.process.stdin.write(content)
             self.process.stdin.flush()
@@ -280,24 +286,41 @@ class LSPClient:
             print(f"[LSP] Notification failed: {e}")
     
     def _read_response(self) -> Optional[Dict[str, Any]]:
-        """Read JSON-RPC response from stdout."""
+        """Read JSON-RPC response from stdout, skipping server notifications."""
         if not self.process or not self.process.stdout:
             return None
         
         try:
-            # Read Content-Length header
+            # Keep reading messages until we get a response (has 'id' field)
+            # Skip server notifications (no 'id' field)
             while True:
-                line = self.process.stdout.readline()
-                if line.startswith('Content-Length:'):
-                    length = int(line.split(':')[1].strip())
-                    break
-            
-            # Read blank line
-            self.process.stdout.readline()
-            
-            # Read message body
-            message = self.process.stdout.read(length)
-            return json.loads(message)
+                # Read headers until \r\n\r\n (binary mode)
+                headers = b''
+                while not headers.endswith(b'\r\n\r\n'):
+                    byte = self.process.stdout.read(1)
+                    if not byte:
+                        return None
+                    headers += byte
+                
+                # Parse Content-Length from headers
+                length = None
+                for line in headers.decode('utf-8').split('\r\n'):
+                    if line.startswith('Content-Length:'):
+                        length = int(line.split(':')[1].strip())
+                        break
+                
+                if length is None:
+                    return None
+                
+                # Read exact number of bytes
+                body = self.process.stdout.read(length)
+                message = json.loads(body.decode('utf-8'))
+                
+                # If this is a response (has 'id'), return it
+                # If it's a notification (no 'id'), skip and continue reading
+                if 'id' in message:
+                    return message
+                # else: it's a server notification, skip it and read next message
             
         except Exception as e:
             print(f"[LSP] Failed to read response: {e}")
