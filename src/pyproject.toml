@@ -9,4 +9,5 @@ dependencies = [
     "tree-sitter>=0.25.2",
     "tree-sitter-python>=0.25.0",
     "typer>=0.20.0",
+    "pyright>=1.1.407",
 ]

@@ -219,5 +219,65 @@ def migrate_database(
     
     console.print("[bold green]Migration complete![/bold green]")
 
+@parser_app.command(name="migrate-lsp")
+def migrate_to_lsp(
+    db_path: str = typer.Option("./cmm.db", "--db-path", help="Path to SQLite database."),
+):
+    """
+    Migrates v0.3 database to v0.3.1 with LSP-ready schema enhancements.
+    Adds columns: symbol_hash, type_hint, is_verified.
+    """
+    console.print("[bold]Migrating database to v0.3.1 (LSP-ready)...[/bold]")
+    
+    db_file = Path(db_path)
+    if not db_file.exists():
+        console.print(f"[red]Error: Database file {db_path} does not exist.[/red]")
+        raise typer.Exit(1)
+    
+    # 1. Backup
+    backup_path = f"{db_path}.v0.3.backup"
+    console.print(f"Creating backup at {backup_path}...")
+    try:
+        shutil.copy2(db_path, backup_path)
+        console.print("[green]Backup created successfully.[/green]")
+    except Exception as e:
+        console.print(f"[red]Failed to create backup: {e}[/red]")
+        raise typer.Exit(1)
+    
+    # 2. Apply migration SQL
+    migration_sql_path = Path(__file__).parent / "migration_v0.3.1.sql"
+    if not migration_sql_path.exists():
+        console.print(f"[red]Error: Migration script not found at {migration_sql_path}[/red]")
+        raise typer.Exit(1)
+    
+    console.print("Applying schema changes...")
+    try:
+        import sqlite3
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        with open(migration_sql_path, 'r') as f:
+            migration_sql = f.read()
+        
+        # Execute migration
+        cursor.executescript(migration_sql)
+        conn.commit()
+        conn.close()
+        
+        console.print("[green]✓ Schema updated to v0.3.1[/green]")
+        console.print("\nNew columns added:")
+        console.print("  • entities_v3.symbol_hash (for LSP correlation)")
+        console.print("  • metadata.type_hint (for type information)")
+        console.print("  • relations.is_verified (for LSP validation)")
+        console.print("\n[bold green]Migration complete![/bold green]")
+        console.print(f"[yellow]Note: Re-scan with --enable-lsp to populate new columns.[/yellow]")
+        
+    except Exception as e:
+        console.print(f"[red]Migration failed: {e}[/red]")
+        console.print(f"[yellow]Restoring from backup...[/yellow]")
+        shutil.copy2(backup_path, db_path)
+        raise typer.Exit(1)
+
+
 if __name__ == "__main__":
     app()
