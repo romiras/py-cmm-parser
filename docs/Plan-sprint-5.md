@@ -113,21 +113,30 @@ ALTER TABLE relations ADD COLUMN is_verified BOOLEAN DEFAULT 0;
 
 ---
 
-## Phase 2: LSP Client Implementation
+## Phase 2: LSP Client Implementation & Protocol Fix
 
 ### Component: `src/lsp_client.py`
 
 **Responsibilities**:
-1. Launch Pyright sidecar process (`pyright-langserver --stdio`)
-2. Send JSON-RPC initialization request with workspace root
-3. Provide semantic query methods:
-   - `get_definition(file_uri: str, line: int, char: int) -> Location`
-   - `get_hover(file_uri: str, line: int, char: int) -> TypeInfo`
-   - `shutdown()` - Clean process termination
+1. **Launch Pyright sidecar process**: Use `python -m pyright.langserver --stdio` (Critical: `pyright` CLI wrapper does not support persistent stdio mode).
+2. **Binary Communication**: Use binary mode for I/O pipes to handle raw JSON-RPC bytes.
+3. **JSON-RPC Protocol Handling**:
+   - Calculate `Content-Length` in **bytes** (UTF-8 encoding) to avoid protocol desync.
+   - Implement notification skipping: Ignore server noise (logging, diagnostics) to focus on request responses with matching IDs.
+4. **Lifecycle Management**: Implement `initialize` -> `initialized` handshake.
 
-**Protocol Example**:
+**Automated Troubleshooting Suite (`scripts/lsp-troubleshoot/`)**:
+- `01_check_prerequisites.sh`: Verify Node.js/Pyright.
+- `02_test_langserver_invocation.sh`: Test server startup.
+- `03_test_json_rpc_protocol.sh`: Validate header/body formatting.
+- `04_test_definition_lookup.sh`: End-to-end lookup test.
+
+**Protocol Example (Fixed)**:
 ```json
-// Request: "What is defined at parser.py:42:15?"
+// Header (Bytes)
+Content-Length: 142\r\n\r\n
+
+// Body (Request)
 {
   "jsonrpc": "2.0",
   "id": 1,
@@ -137,25 +146,12 @@ ALTER TABLE relations ADD COLUMN is_verified BOOLEAN DEFAULT 0;
     "position": {"line": 42, "character": 15}
   }
 }
-
-// Response: "It's _internal_logic() in utils.py:10"
-{
-  "jsonrpc": "2.0",
-  "id": 1,
-  "result": {
-    "uri": "file:///path/to/utils.py",
-    "range": {
-      "start": {"line": 10, "character": 4},
-      "end": {"line": 10, "character": 19}
-    }
-  }
-}
 ```
 
 ### Error Handling
-- **Pyright not installed**: Gracefully fall back to Lazy Linker
-- **LSP timeout**: Mark as `is_verified=0`, store `to_name` only
-- **Ambiguous symbols**: Trust LSP result (it uses type inference)
+- **Pyright not installed**: Gracefully fall back to Lazy Linker.
+- **Protocol Desync**: Detect malformed headers and reconnect/fallback.
+- **Ambiguous symbols**: Trust LSP result (it uses type inference).
 
 ---
 
@@ -271,48 +267,79 @@ if lsp_client.is_available():
 ---
 
 ## Phased Rollout
-
-### Sprint 5.1: Foundation (Days 1-3)
-- ✅ Implement schema changes (v0.3.1 migration)
-- ✅ Create LSP client wrapper
-- ✅ Add integration tests for Pyright communication
-
-### Sprint 5.2: Parser Integration (Days 4-6)
-- ✅ Implement Symbol Mapper service
-- ✅ Update parser to use hybrid mode (LSP + fallback)
-- ✅ Add `--enable-lsp` CLI flag for opt-in testing
-
-### Sprint 5.3: Type Enrichment (Days 7-9)
-- ✅ Capture type hints via LSP hover requests
-- ✅ Update storage to persist type information
-- ✅ Enhance `resolve` command to display types
-
-### Sprint 5.4: Validation & Documentation (Days 10-12)
-- ✅ End-to-end testing on real Python codebase
-- ✅ Performance benchmarking (LSP vs Lazy)
-- ✅ Update documentation
-- ✅ Create `sprint-5-SOLUTION.md`
-
----
-
-## Success Criteria
-
-### Functional Requirements
-- ✅ LSP client successfully connects to Pyright sidecar
-- ✅ Symbol resolution achieves 95%+ accuracy on test codebase
-- ✅ Type hints captured for at least 80% of methods
-- ✅ Hybrid mode: Falls back to Lazy Linker when LSP unavailable
-- ✅ No regressions in Sprint 4 functionality
-
-### Performance Requirements
-- ⏱️ LSP resolution adds < 2x scanning time vs pure Tree-sitter
-- ⏱️ Symbol Mapper cache reduces DB queries by 70%+
-- 💾 Database size increase < 20% due to type hints
-
-### Compatibility Requirements
-- 🔄 v0.3 databases migrate to v0.3.1 without data loss
-- 🔄 CLI works without Pyright (Lazy fallback mode)
-- 🔄 Existing tests continue to pass
+ 
+-### Sprint 5.1: Foundation (Days 1-3)
+- - ✅ Implement schema changes (v0.3.1 migration)
+- - ✅ Create LSP client wrapper
+- - ✅ Add integration tests for Pyright communication
+- 
+-### Sprint 5.2: Parser Integration (Days 4-6)
+- - ✅ Implement Symbol Mapper service
+- - ✅ Update parser to use hybrid mode (LSP + fallback)
+- - ✅ Add `--enable-lsp` CLI flag for opt-in testing
+- 
+-### Sprint 5.3: Type Enrichment (Days 7-9)
+- - ✅ Capture type hints via LSP hover requests
+- - ✅ Update storage to persist type information
+- - ✅ Enhance `resolve` command to display types
+- 
+-### Sprint 5.4: Validation & Documentation (Days 10-12)
+- - ✅ End-to-end testing on real Python codebase
+- - ✅ Performance benchmarking (LSP vs Lazy)
+- - ✅ Update documentation
+- - ✅ Create `sprint-5-SOLUTION.md`
++### Sprint 5.1: Foundation (Complete)
++- ✅ Implement schema changes (v0.3.1 migration).
++- ✅ Create LSP client skeleton and data structures.
++- ✅ Add migration logic to CLI (`migrate-lsp`).
++
++### Sprint 5.2: Protocol & Troubleshooting (Complete)
++- ✅ Resolve Pyright invocation issue (`pyright.langserver --stdio`).
++- ✅ Implement binary-mode JSON-RPC handling.
++- ✅ Create automated troubleshooting suite (`scripts/lsp-troubleshoot/`).
++- ✅ Establish documentation for protocol fixes.
++
++### Sprint 5.3: Integration (In Progress)
++- ⏳ Integrate `LSPClient` into `TreeSitterParser`.
++- ⏳ Implement "Hybrid Mode" (LSP definition → Symbol Mapper → Entity ID).
++- ⏳ Update `SQLiteStorage` to save `symbol_hash` and `is_verified` flags.
++- ⏳ Add `--enable-lsp` flag to `scan` command.
++
++### Sprint 5.4: Type Enrichment & Validation (Next)
++- ⏳ Capture type hints via LSP `hover` requests.
++- ⏳ Performance benchmarking (LSP vs Lazy resolution).
++- ⏳ Final documentation and `sprint-5-SOLUTION.md` completion.
+ 
+ ---
+ 
+-## Success Criteria
+- 
+-### Functional Requirements
+- - ✅ LSP client successfully connects to Pyright sidecar
+- - ✅ Symbol resolution achieves 95%+ accuracy on test codebase
+- - ✅ Type hints captured for at least 80% of methods
+- - ✅ Hybrid mode: Falls back to Lazy Linker when LSP unavailable
+- - ✅ No regressions in Sprint 4 functionality
+- 
+-### Performance Requirements
+- - ⏱️ LSP resolution adds < 2x scanning time vs pure Tree-sitter
+- - ⏱️ Symbol Mapper cache reduces DB queries by 70%+
+- - 💾 Database size increase < 20% due to type hints
+- 
+-### Compatibility Requirements
+- - 🔄 v0.3 databases migrate to v0.3.1 without data loss
+- - 🔄 CLI works without Pyright (Lazy fallback mode)
+- - 🔄 Existing tests continue to pass
++## Success Criteria Status
++
++- **Functional**: 
++  - ✅ LSP client successfully handshakes with Pyright (16 capabilities detected).
++  - ⏳ 95% resolution accuracy (to be validated in 5.3).
++  - ⏳ Type hint capture (to be validated in 5.4).
++- **Protocol**:
++  - ✅ Robust JSON-RPC over stdio (binary-safe).
++  - ✅ Server notification filtering.
++  - ✅ Automatic troubleshooting scripts pass.
 
 ---
 
