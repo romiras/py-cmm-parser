@@ -1,5 +1,7 @@
 import typer
 import json
+import shutil
+import os
 from pathlib import Path
 from rich.tree import Tree
 from rich.console import Console
@@ -13,7 +15,7 @@ from resolver import DependencyResolver
 app = typer.Typer(help="Root CLI for CMM tools.")
 parser_app = typer.Typer(help="Tools for parsing source code into CMM entities.")
 app.add_typer(parser_app, name="parser")
-console = Console()
+console = Console(width=120)
 
 @parser_app.command(name="scan-file")
 def scan_file(
@@ -161,6 +163,7 @@ def resolve_dependencies(
         for entity_name, resolved_deps in dependencies.items():
             table = Table(title=f"Entity: {entity_name}", show_header=True)
             table.add_column("Dependency", style="cyan")
+            table.add_column("Rel Type", style="bold yellow") # New column
             table.add_column("Type", style="magenta")
             table.add_column("CMM Type", style="blue")
             table.add_column("Visibility", style="green")
@@ -169,6 +172,7 @@ def resolve_dependencies(
             for dep in resolved_deps:
                 table.add_row(
                     dep.entity_name,
+                    dep.rel_type,
                     dep.entity_type,
                     dep.cmm_type,
                     dep.visibility,
@@ -177,6 +181,43 @@ def resolve_dependencies(
             
             console.print(table)
             console.print()
+
+@parser_app.command(name="migrate")
+def migrate_database(
+    from_version: str = typer.Option("v0.2", "--from", help="Current schema version."),
+    to_version: str = typer.Option("v0.3", "--to", help="Target schema version."),
+    db_path: str = typer.Option("./cmm.db", "--db-path", help="Path to SQLite database."),
+    scan_path: str = typer.Option(".", "--scan-path", help="Path to re-scan after migration."),
+):
+    """
+    Migrates the database to a new schema version.
+    Current implementation: Backs up DB and performs a full re-scan.
+    """
+    console.print(f"[bold]Migrating database from {from_version} to {to_version}...[/bold]")
+    
+    db_file = Path(db_path)
+    if not db_file.exists():
+        console.print(f"[yellow]Database file {db_path} does not exist. Creating new.[/yellow]")
+    else:
+        # 1. Backup
+        backup_path = f"{db_path}.{from_version}.backup"
+        console.print(f"Creating backup at {backup_path}...")
+        try:
+            shutil.copy2(db_path, backup_path)
+            console.print("[green]Backup created successfully.[/green]")
+        except Exception as e:
+            console.print(f"[red]Failed to create backup: {e}[/red]")
+            raise typer.Exit(1)
+        
+        # 2. Delete old DB (to allow fresh creation of v0.3 schema)
+        console.print("Removing old database...")
+        os.remove(db_path)
+    
+    # 3. Re-scan
+    console.print(f"Initializing {to_version} schema and re-scanning {scan_path}...")
+    scan_directory(scan_path, db_path=db_path, verbose=False)
+    
+    console.print("[bold green]Migration complete![/bold green]")
 
 if __name__ == "__main__":
     app()

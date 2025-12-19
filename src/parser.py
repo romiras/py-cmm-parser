@@ -1,8 +1,9 @@
 from typing import Protocol, List, Dict, Any
-from tree_sitter import Parser, Language, Query, QueryCursor
+from tree_sitter import Parser, Language, Query, QueryCursor, Node
 from tree_sitter_python import language
 from domain import CMMEntity
 from normalizer import PythonNormalizer
+import os
 
 
 class ParserPort(Protocol):
@@ -12,7 +13,8 @@ class ParserPort(Protocol):
         """Scans a file and returns a CMMEntity."""
         ...
 
-# Extended S-expression query to capture decorators, base classes, and imports
+
+# S-expression query to capture classes, functions, decorators, bases, and imports
 CMM_QUERY = """
 (class_definition
   name: (identifier) @class.name
@@ -37,6 +39,27 @@ CMM_QUERY = """
   name: (dotted_name) @import_from.name)
 """
 
+# Query to extract function/method calls within bodies
+CALL_QUERY = """
+(call
+  function: (identifier) @call.function)
+
+(call
+  function: (attribute
+    object: (identifier) @call.object
+    attribute: (identifier) @call.method))
+"""
+
+# Python built-in functions and keywords to exclude from call dependencies
+PYTHON_BUILTINS = {
+    'self', 'cls',  # Common method parameters
+    'print', 'len', 'str', 'int', 'float', 'bool', 'list', 'dict', 'set', 'tuple',
+    'range', 'enumerate', 'zip', 'map', 'filter', 'sorted', 'sum', 'min', 'max',
+    'abs', 'all', 'any', 'isinstance', 'issubclass', 'hasattr', 'getattr', 'setattr',
+    'open', 'type', 'id', 'hash', 'repr', 'format', 'input', 'next', 'iter'
+}
+
+
 class TreeSitterParser(ParserPort):
     """A parser that uses Tree-sitter to extract CMM entities."""
 
@@ -45,6 +68,11 @@ class TreeSitterParser(ParserPort):
         self.language = Language(language())
         self.parser.language = self.language
         self.normalizer = PythonNormalizer()
+        
+        self.cmm_query = Query(self.language, CMM_QUERY)
+        self.call_query = Query(self.language, CALL_QUERY)
+        
+        self.debug_mode = os.environ.get("CMM_DEBUG") == "1"
 
     def scan_file(self, file_path: str) -> CMMEntity:
         """Scans a file and returns a CMMEntity."""
@@ -52,132 +80,208 @@ class TreeSitterParser(ParserPort):
             content = f.read()
         
         tree = self.parser.parse(bytes(content, "utf8"))
-        query = Query(self.language, CMM_QUERY)
-        cursor = QueryCursor(query)
+        cursor = QueryCursor(self.cmm_query)
         captures_dict = cursor.captures(tree.root_node)
 
-        entities: List[Dict[str, Any]] = []
-        node_to_entity: Dict[int, Dict[str, Any]] = {}
-        decorator_map: Dict[int, List[str]] = {}  # Maps function node ID to decorators
-        imports: List[str] = []  # Track imports for dependency resolution
-
-        # Flatten captures from dict format to list of (node, capture_name) tuples
+        # Flatten captures to list of (node, capture_name) tuples
         captures = []
         for capture_name, nodes in captures_dict.items():
             for node in nodes:
                 captures.append((node, capture_name))
 
-        # First pass: collect imports and decorators
-        for node, capture_name in captures:
-            if capture_name == "import.module":
-                module_name = node.text.decode()
-                imports.append(module_name)
-            elif capture_name == "import_from.module":
-                module_name = node.text.decode()
-                imports.append(module_name)
-            elif capture_name == "decorator.name":
-                decorator_name = node.text.decode()
-                # Find the decorated function
-                parent = node.parent
-                while parent:
-                    if parent.type == "decorated_definition":
-                        # Find the function_definition child
-                        for child in parent.children:
-                            if child.type == "function_definition":
-                                if child.id not in decorator_map:
-                                    decorator_map[child.id] = []
-                                decorator_map[child.id].append(decorator_name)
-                        break
-                    parent = parent.parent
+        # Data structures
+        node_to_entity: Dict[int, Dict[str, Any]] = {}
+        decorator_map: Dict[int, List[str]] = {}
 
-        # Second pass: create entities for classes and functions
+        # Pass 1: Collect decorators and create entities
         for node, capture_name in captures:
-            if capture_name == "class.name":
-                class_name = node.text.decode()
-                entity = {
-                    "type": "class",
-                    "name": class_name,
-                    "methods": [],
-                    "docstring": "",
-                    "dependencies": []
-                }
-                node_to_entity[node.parent.id] = entity
-                
-            elif capture_name == "function.name" or capture_name == "decorated_function.name":
-                function_name = node.text.decode()
-                entity = {
-                    "type": "function",
-                    "name": function_name,
-                    "docstring": "",
-                    "method_kind": "instance",  # Default, will be updated
-                    "dependencies": []
-                }
-                
-                # Determine the actual function node
-                if capture_name == "decorated_function.name":
-                    func_node = node.parent  # function_definition
-                else:
-                    func_node = node.parent
-                
-                # Check for decorators
-                if func_node.id in decorator_map:
-                    decorators = decorator_map[func_node.id]
-                    if "staticmethod" in decorators:
-                        entity["method_kind"] = "static"
-                    elif "classmethod" in decorators:
-                        entity["method_kind"] = "class"
-                
-                node_to_entity[func_node.id] = entity
+            if capture_name == "decorator.name":
+                self._process_decorator(node, decorator_map)
+            elif capture_name == "class.name":
+                self._create_class_entity(node, node_to_entity)
+            elif capture_name in ["function.name", "decorated_function.name"]:
+                self._create_function_entity(node, node_to_entity, decorator_map)
 
-        # Third pass: associate docstrings and base classes
+        # Pass 2: Populate entity metadata (docstrings, base classes, calls, imports)
         for node, capture_name in captures:
-            if capture_name == "class.docstring":
-                docstring = node.text.decode()
-                entity = node_to_entity.get(node.parent.parent.parent.id)
-                if entity:
-                    entity["docstring"] = docstring
-                    
-            elif capture_name == "function.docstring" or capture_name == "decorated_function.docstring":
-                docstring = node.text.decode()
-                entity = node_to_entity.get(node.parent.parent.parent.id)
-                if entity:
-                    entity["docstring"] = docstring
-                    
+            if capture_name in ["class.docstring", "function.docstring", "decorated_function.docstring"]:
+                self._add_docstring(node, node_to_entity)
             elif capture_name == "class.bases":
-                # Extract base class names for dependency tracking
-                base_classes = node.text.decode()
-                # Remove parentheses and split by comma
-                base_classes = base_classes.strip("()").split(",")
-                base_classes = [bc.strip() for bc in base_classes if bc.strip()]
-                
-                # Find the class entity
-                class_node = node.parent
-                entity = node_to_entity.get(class_node.id)
-                if entity and base_classes:
-                    entity["dependencies"].extend(base_classes)
+                self._add_base_classes(node, node_to_entity)
+            elif capture_name in ["function.body", "decorated_function.body"]:
+                self._extract_calls_from_body(node, node_to_entity)
+            elif capture_name in ["import.module", "import_from.module"]:
+                self._add_import_dependency(node, node_to_entity, captures)
 
-        # Fourth pass: build the hierarchy
-        for node, _ in captures:
-            if node.id in node_to_entity:
-                entity = node_to_entity[node.id]
-                parent = node.parent
-                while parent:
-                    if parent.id in node_to_entity:
-                        parent_entity = node_to_entity[parent.id]
-                        if parent_entity["type"] == "class" and entity["type"] == "function":
-                            parent_entity["methods"].append(entity)
-                            entity["moved"] = True
-                        break
-                    parent = parent.parent
+        # Pass 3: Build class hierarchy (nest methods inside classes)
+        self._build_hierarchy(captures, node_to_entity)
 
-        # Collect the root entities
+        # Collect root-level entities (not nested)
+        final_entities = [e for e in node_to_entity.values() if not e.get("_is_nested")]
+        
+        # Clean up internal flags
+        for e in final_entities:
+            e.pop("_is_nested", None)
+
+        # Normalize and return
+        normalized_entities = self.normalizer.normalize_entities(final_entities)
+        return CMMEntity(schema_version="v0.3", entities=normalized_entities)
+
+    def _process_decorator(self, node: Node, decorator_map: Dict[int, List[str]]):
+        """Extract decorator name and map it to its function."""
+        decorator_name = node.text.decode()
+        parent = node.parent
+        while parent:
+            if parent.type == "decorated_definition":
+                for child in parent.children:
+                    if child.type == "function_definition":
+                        if child.id not in decorator_map:
+                            decorator_map[child.id] = []
+                        decorator_map[child.id].append(decorator_name)
+                break
+            parent = parent.parent
+
+    def _create_class_entity(self, node: Node, node_to_entity: Dict[int, Dict[str, Any]]):
+        """Create a class entity."""
+        class_name = node.text.decode()
+        class_node = node.parent  # identifier -> class_definition
+        
+        entity = {
+            "type": "class",
+            "name": class_name,
+            "methods": [],
+            "docstring": "",
+            "dependencies": []
+        }
+        node_to_entity[class_node.id] = entity
+
+    def _create_function_entity(self, node: Node, node_to_entity: Dict[int, Dict[str, Any]], 
+                                decorator_map: Dict[int, List[str]]):
+        """Create a function/method entity."""
+        function_name = node.text.decode()
+        func_node = node.parent  # identifier -> function_definition
+        
+        entity = {
+            "type": "function",
+            "name": function_name,
+            "docstring": "",
+            "method_kind": "instance",
+            "dependencies": []
+        }
+        
+        # Check for decorators to determine method kind
+        if func_node.id in decorator_map:
+            decorators = decorator_map[func_node.id]
+            if "staticmethod" in decorators:
+                entity["method_kind"] = "static"
+            elif "classmethod" in decorators:
+                entity["method_kind"] = "class"
+        
+        node_to_entity[func_node.id] = entity
+
+    def _add_docstring(self, node: Node, node_to_entity: Dict[int, Dict[str, Any]]):
+        """Add docstring to entity."""
+        docstring = node.text.decode()
+        # Navigate: string -> expression_statement -> block -> definition
+        body_block = node.parent.parent
+        def_node = body_block.parent
+        
+        entity = node_to_entity.get(def_node.id)
+        if entity:
+            entity["docstring"] = docstring
+
+    def _add_base_classes(self, node: Node, node_to_entity: Dict[int, Dict[str, Any]]):
+        """Add base classes as 'inherits' dependencies."""
+        class_node = node.parent
+        entity = node_to_entity.get(class_node.id)
+        if not entity:
+            return
+        
+        # Extract base class names from argument_list node
+        for child in node.children:
+            if child.type == "identifier":
+                base_class = child.text.decode()
+                entity["dependencies"].append({
+                    "name": base_class,
+                    "rel_type": "inherits"
+                })
+            elif child.type == "attribute":
+                # Handle qualified names like module.ClassName
+                base_class = child.text.decode()
+                entity["dependencies"].append({
+                    "name": base_class,
+                    "rel_type": "inherits"
+                })
+
+    def _extract_calls_from_body(self, body_node: Node, node_to_entity: Dict[int, Dict[str, Any]]):
+        """Extract function/method calls from body and add as dependencies."""
+        func_node = body_node.parent
+        entity = node_to_entity.get(func_node.id)
+        if not entity:
+            return
+        
+        cursor = QueryCursor(self.call_query)
+        captures = cursor.captures(body_node)
+        
+        # Collect unique call names
+        call_names = set()
+        for capture_name, nodes in captures.items():
+            for node in nodes:
+                call_name = node.text.decode()
+                # Filter out Python builtins
+                if call_name not in PYTHON_BUILTINS:
+                    call_names.add(call_name)
+        
+        # Add as dependencies
+        for call_name in call_names:
+            entity["dependencies"].append({
+                "name": call_name,
+                "rel_type": "calls"
+            })
+        
+        if self.debug_mode:
+            print(f"[TRACE] Body for {entity['name']}:\n{body_node.text.decode()}\n")
+
+    def _add_import_dependency(self, node: Node, node_to_entity: Dict[int, Dict[str, Any]], 
+                               captures: List[tuple]):
+        """Add import as a file-level dependency."""
+        module_name = node.text.decode()
+        
+        # Find the top-level module entity (if we create one) or attach to first function/class
+        # For simplicity, we'll create a synthetic "module" entity if none exists
+        # Or we can skip this for now since imports are file-level, not entity-level
+        # 
+        # Decision: Skip for now. Imports are file-level metadata, not entity-level.
+        # We can add a "module" entity type in a future sprint if needed.
+        pass
+
+    def _build_hierarchy(self, captures: List[tuple], node_to_entity: Dict[int, Dict[str, Any]]):
+        """Build class-method hierarchy by nesting methods inside classes."""
+        # Clear existing methods lists
         for entity in node_to_entity.values():
-            if not entity.get("moved"):
-                if "moved" in entity:
-                    del entity["moved"]
-                entities.append(entity)
-
-        # Normalize all entities
-        normalized_entities = self.normalizer.normalize_entities(entities)
-
-        return CMMEntity(schema_version="v0.2", entities=normalized_entities)
+            if entity["type"] == "class":
+                entity["methods"] = []
+        
+        # Iterate over function/class name captures to establish parent-child relationships
+        for node, capture_name in captures:
+            if capture_name not in ["class.name", "function.name", "decorated_function.name"]:
+                continue
+            
+            def_node = node.parent  # identifier -> definition
+            if def_node.id not in node_to_entity:
+                continue
+            
+            entity = node_to_entity[def_node.id]
+            
+            # Walk up the tree to find parent class
+            current = def_node.parent
+            while current:
+                if current.id in node_to_entity:
+                    parent_entity = node_to_entity[current.id]
+                    # If parent is a class and child is a function, nest it
+                    if parent_entity["type"] == "class" and entity["type"] == "function":
+                        if entity not in parent_entity["methods"]:
+                            parent_entity["methods"].append(entity)
+                        entity["_is_nested"] = True
+                    break
+                current = current.parent
