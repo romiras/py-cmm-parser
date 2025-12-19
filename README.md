@@ -136,6 +136,27 @@ py-cmm-parser/
 - ✅ **Sprint 2**: SQLite storage and directory scanning
 - ✅ **Sprint 3**: Normalization and Lazy Resolution
 - ✅ **Sprint 4**: Schema Migration & Deep Method Analysis
+- ⚙️ **Sprint 5.1**: LSP Integration Foundation (in progress)
+  - ✅ v0.3.1 schema with LSP-ready columns
+  - ✅ Migration command for v0.3 → v0.3.1
+  - ⚠️ LSP client (protocol refinement needed)
+
+## Latest Updates
+
+### v0.3.1 Schema (LSP-Ready)
+
+Sprint 5.1 introduced three new columns to support Language Server Protocol integration:
+- `entities_v3.symbol_hash` - Unique identifier for LSP correlation
+- `metadata.type_hint` - Parameter and return type information
+- `relations.is_verified` - Boolean flag for LSP-validated links
+
+**Migrate Existing Database**:
+```bash
+cd src
+uv run python -m cli parser migrate-lsp --db-path ./cmm.db
+```
+
+This upgrade enables future deterministic dependency linking via Pyright (95%+ accuracy vs 60-80% with Lazy Linker).
 
 ## Future Enhancements (Next Steps)
 
