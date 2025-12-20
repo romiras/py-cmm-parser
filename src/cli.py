@@ -8,7 +8,6 @@ from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 from parser import TreeSitterParser
-from domain import CMMEntity
 from storage import SQLiteStorage
 from resolver import DependencyResolver
 
@@ -239,8 +238,8 @@ def scan_directory(
 
         lsp.shutdown()
 
-        console.print(f"\n[green]✓ Pass 2 complete[/green]")
-        console.print(f"[cyan]LSP Resolution Statistics:[/cyan]")
+        console.print("\n[green]✓ Pass 2 complete[/green]")
+        console.print("[cyan]LSP Resolution Statistics:[/cyan]")
         console.print(f"  • {stats['resolved']} relations verified")
         console.print(f"  • {stats['failed']} lookups failed")
         console.print(f"  • {stats['external']} external references")
@@ -426,12 +425,12 @@ def migrate_to_lsp(
         console.print("  • relations.is_verified (for LSP validation)")
         console.print("\n[bold green]Migration complete![/bold green]")
         console.print(
-            f"[yellow]Note: Re-scan with --enable-lsp to populate new columns.[/yellow]"
+            "[yellow]Note: Re-scan with --enable-lsp to populate new columns.[/yellow]"
         )
 
     except Exception as e:
         console.print(f"[red]Migration failed: {e}[/red]")
-        console.print(f"[yellow]Restoring from backup...[/yellow]")
+        console.print("[yellow]Restoring from backup...[/yellow]")
         shutil.copy2(backup_path, db_path)
         raise typer.Exit(1)
 

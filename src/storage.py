@@ -1,9 +1,7 @@
 import sqlite3
 import hashlib
-import json
 import uuid
-import os
-from typing import Protocol, Optional, Dict, Any, List
+from typing import Protocol, Optional, Dict, Any
 from pathlib import Path
 from datetime import datetime
 from domain import CMMEntity

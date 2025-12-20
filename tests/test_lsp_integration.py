@@ -1,10 +1,6 @@
 import pytest
 import tempfile
-import shutil
 from pathlib import Path
-from cli import scan_directory
-from storage import SQLiteStorage
-import os
 
 # Skip test if Pyright is not available or if running in an environment where we can't spawn processes easily
 # But for now, we assume we can.

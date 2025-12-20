@@ -1,8 +1,6 @@
 import unittest
 import sqlite3
 import os
-import json
-from pathlib import Path
 from domain import CMMEntity
 from storage import SQLiteStorage
 

@@ -319,7 +319,7 @@ class TreeSitterParser(ParserPort):
         captures: List[tuple],
     ):
         """Add import as a file-level dependency."""
-        module_name = node.text.decode()
+        # module_name = node.text.decode()
 
         # Find the top-level module entity (if we create one) or attach to first function/class
         # For simplicity, we'll create a synthetic "module" entity if none exists
