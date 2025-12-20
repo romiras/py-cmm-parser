@@ -4,6 +4,10 @@
 -- 1. Add symbol_hash to entities_v3 for unique LSP correlation
 ALTER TABLE entities_v3 ADD COLUMN symbol_hash TEXT DEFAULT NULL;
 
+-- 1b. Add line tracking to entities_v3 for CallSite mapping
+ALTER TABLE entities_v3 ADD COLUMN line_start INTEGER DEFAULT 0;
+ALTER TABLE entities_v3 ADD COLUMN line_end INTEGER DEFAULT 0;
+
 -- 2. Add type_hint to metadata for parameter and return type information
 ALTER TABLE metadata ADD COLUMN type_hint TEXT DEFAULT NULL;
 

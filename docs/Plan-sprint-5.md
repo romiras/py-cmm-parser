@@ -271,7 +271,8 @@ if lsp_client.is_available():
 ### Sprint 5.1: Foundation (Complete)
 - ✅ Implement schema changes (v0.3.1 migration).
 - ✅ Create LSP client skeleton and data structures.
-- ✅ Add migration logic to CLI (`migrate-lsp`).
+- ✅ Unified migration command supporting v0.2→v0.3 and v0.3→v0.3.1 paths.
+
 
 ### Sprint 5.2: Protocol & Troubleshooting (Complete)
 - ✅ Resolve Pyright invocation issue (`pyright.langserver --stdio`).
@@ -284,18 +285,24 @@ if lsp_client.is_available():
 **Goal**: Wire `LSPClient` into the scanning workflow to produce verified relations.
 
 **Challenge**: "Forward Reference" problem. During a fresh scan, referenced files may not be in the DB yet, so `SymbolMapper` can't link to UUIDs.
+
 **Solution**: Implement a **Two-Pass Strategy** in the `scan` command.
 1. **Pass 1 (Syntax)**: Standard Tree-sitter scan. storage.upsert() all entities.
 2. **Pass 2 (Semantics)**: If `--enable-lsp` is active, re-iterate files, resolving calls via LSP and linking to the now-populated DB.
 
 **Tasks**:
-- [ ] **LSP Lifecycle Management**: Update `CLI` to manage LSP process (start on generic scan, shutdown on exit).
-- [ ] **Parser Updates**: Add `resolve_dependencies(file_path, lsp_client)` method to `TreeSitterParser` (or separate service) that:
-    - Re-parses calls.
-    - Queries LSP `textDocument/definition`.
-    - Uses `SymbolMapper` to find target `to_id`.
-- [ ] **Storage Updates**: Add `update_relation_verification(from_id, to_id, is_verified)` method.
-- [ ] **CLI Wiring**: Update `scan` command to orchestrate the Two-Pass approach.
+- [ ] **CallSite Data Structure**: Define `@dataclass CallSite` in `domain.py` or `lsp_client.py`.
+- [ ] **Parser Updates**: Implement `extract_call_sites(file_path) -> List[CallSite]`.
+- [ ] **LSPClient Enhancement**: Add `open_document(uri, content)` for `textDocument/didOpen`.
+- [ ] **SymbolMapper Updates**: 
+    - Add `find_enclosing_entity(file_path, line) -> Optional[str]`.
+    - Implement per-file entity range caching.
+- [ ] **Storage Updates**: Implement `save_verified_relation` with UPSERT logic.
+- [ ] **CLI Wiring**: 
+    - Add `--enable-lsp` flag to `scan` command.
+    - Implement Pass 2 orchestration with progress tracking.
+    - Add LSP resolution statistics to output.
+- [ ] **Integration Test**: Create fixture with 2 files (A calls B) and verify `is_verified=1` after Pass 2.
 
 ### Sprint 5.4: Type Enrichment & Validation (Timebox: 3 Days)
 **Goal**: Capture type signatures and validate the end-to-end value.
