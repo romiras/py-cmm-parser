@@ -271,7 +271,8 @@ if lsp_client.is_available():
 ### Sprint 5.1: Foundation (Complete)
 - ✅ Implement schema changes (v0.3.1 migration).
 - ✅ Create LSP client skeleton and data structures.
-- ✅ Add migration logic to CLI (`migrate-lsp`).
+- ✅ Unified migration command supporting v0.2→v0.3 and v0.3→v0.3.1 paths.
+
 
 ### Sprint 5.2: Protocol & Troubleshooting (Complete)
 - ✅ Resolve Pyright invocation issue (`pyright.langserver --stdio`).

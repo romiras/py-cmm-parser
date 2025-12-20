@@ -87,7 +87,14 @@ uv run python -m cli parser resolve <file-path> --json
 cd src
 # Migrate from v0.2 to v0.3 (includes backup and re-scan)
 uv run python -m cli parser migrate --from v0.2 --to v0.3
+
+# Migrate from v0.3 to v0.3.1 (SQL-only, adds LSP columns)
+uv run python -m cli parser migrate --from v0.3 --to v0.3.1
 ```
+
+**Supported Migration Paths**:
+- **v0.2 → v0.3**: Full re-scan migration (backup, delete old DB, re-scan with new schema)
+- **v0.3 → v0.3.1**: SQL-only migration (backup, apply schema changes for LSP support)
 
 ### Inspect the Database (v0.3)
 
@@ -142,7 +149,8 @@ py-cmm-parser/
     ├── Plan-sprint-1.md
     ├── Plan-sprint-2.md
     ├── Plan-sprint-3.md
-    └── Plan-sprint-4.md
+    ├── Plan-sprint-4.md
+    └── Plan-sprint-5.md
 ```
 
 ### Sprint Progress
@@ -151,16 +159,17 @@ py-cmm-parser/
 - ✅ **Sprint 2**: SQLite storage and directory scanning
 - ✅ **Sprint 3**: Normalization and Lazy Resolution
 - ✅ **Sprint 4**: Schema Migration & Deep Method Analysis
-- ⚙️ **Sprint 5.1**: LSP Integration Foundation (in progress)
+- ⚙️ **Sprint 5**: LSP Integration
   - ✅ v0.3.1 schema with LSP-ready columns
-  - ✅ Migration command for v0.3 → v0.3.1
-  - ⚠️ LSP client (protocol refinement needed)
+  - ✅ Unified migration command (v0.2→v0.3, v0.3→v0.3.1)
+  - ✅ LSP client with Pyright integration
+  - ✅ Type enrichment via hover information
 
 ## Latest Updates
 
 ### v0.3.1 Schema (LSP-Ready)
 
-Sprint 5.1 introduced three new columns to support Language Server Protocol integration:
+Sprint 5 introduced three new columns to support Language Server Protocol integration:
 - `entities_v3.symbol_hash` - Unique identifier for LSP correlation
 - `metadata.type_hint` - Parameter and return type information
 - `relations.is_verified` - Boolean flag for LSP-validated links
@@ -168,10 +177,11 @@ Sprint 5.1 introduced three new columns to support Language Server Protocol inte
 **Migrate Existing Database**:
 ```bash
 cd src
-uv run python -m cli parser migrate-lsp --db-path ./cmm.db
+uv run python -m cli parser migrate --from v0.3 --to v0.3.1
 ```
 
-This upgrade enables future deterministic dependency linking via Pyright (95%+ accuracy vs 60-80% with Lazy Linker).
+This upgrade enables deterministic dependency linking via Pyright (95%+ accuracy vs 60-80% with Lazy Linker).
+
 
 ## Future Enhancements (Next Steps)
 

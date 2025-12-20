@@ -335,81 +335,49 @@ def resolve_dependencies(
             console.print()
 
 
-@parser_app.command(name="migrate")
-def migrate_database(
-    from_version: str = typer.Option("v0.2", "--from", help="Current schema version."),
-    to_version: str = typer.Option("v0.3", "--to", help="Target schema version."),
-    db_path: str = typer.Option(
-        "./cmm.db", "--db-path", help="Path to SQLite database."
-    ),
-    scan_path: str = typer.Option(
-        ".", "--scan-path", help="Path to re-scan after migration."
-    ),
-):
+# ========== Migration Helper Functions ==========
+
+
+def _create_backup(db_path: str, version_label: str) -> str:
     """
-    Migrates the database to a new schema version.
-    Current implementation: Backs up DB and performs a full re-scan.
+    Creates a backup of the database file.
+    
+    Args:
+        db_path: Path to the database file
+        version_label: Version label for backup filename (e.g., 'v0.2', 'v0.3')
+    
+    Returns:
+        Path to the backup file
+    
+    Raises:
+        typer.Exit: If backup creation fails
     """
-    console.print(
-        f"[bold]Migrating database from {from_version} to {to_version}...[/bold]"
-    )
-
-    db_file = Path(db_path)
-    if not db_file.exists():
-        console.print(
-            f"[yellow]Database file {db_path} does not exist. Creating new.[/yellow]"
-        )
-    else:
-        # 1. Backup
-        backup_path = f"{db_path}.{from_version}.backup"
-        console.print(f"Creating backup at {backup_path}...")
-        try:
-            shutil.copy2(db_path, backup_path)
-            console.print("[green]Backup created successfully.[/green]")
-        except Exception as e:
-            console.print(f"[red]Failed to create backup: {e}[/red]")
-            raise typer.Exit(1)
-
-        # 2. Delete old DB (to allow fresh creation of v0.3 schema)
-        console.print("Removing old database...")
-        os.remove(db_path)
-
-    # 3. Re-scan
-    console.print(f"Initializing {to_version} schema and re-scanning {scan_path}...")
-    scan_directory(scan_path, db_path=db_path, verbose=False)
-
-    console.print("[bold green]Migration complete![/bold green]")
-
-
-@parser_app.command(name="migrate-lsp")
-def migrate_to_lsp(
-    db_path: str = typer.Option(
-        "./cmm.db", "--db-path", help="Path to SQLite database."
-    ),
-):
-    """
-    Migrates v0.3 database to v0.3.1 with LSP-ready schema enhancements.
-    Adds columns: symbol_hash, type_hint, is_verified.
-    """
-    console.print("[bold]Migrating database to v0.3.1 (LSP-ready)...[/bold]")
-
-    db_file = Path(db_path)
-    if not db_file.exists():
-        console.print(f"[red]Error: Database file {db_path} does not exist.[/red]")
-        raise typer.Exit(1)
-
-    # 1. Backup
-    backup_path = f"{db_path}.v0.3.backup"
+    backup_path = f"{db_path}.{version_label}.backup"
     console.print(f"Creating backup at {backup_path}...")
     try:
         shutil.copy2(db_path, backup_path)
         console.print("[green]Backup created successfully.[/green]")
+        return backup_path
     except Exception as e:
         console.print(f"[red]Failed to create backup: {e}[/red]")
         raise typer.Exit(1)
 
-    # 2. Apply migration SQL
-    migration_sql_path = Path(__file__).parent / "migration_v0.3.1.sql"
+
+def _apply_sql_migration(db_path: str, migration_file: str, backup_path: str) -> None:
+    """
+    Applies a SQL migration script to the database.
+    
+    Args:
+        db_path: Path to the database file
+        migration_file: Name of the migration SQL file (e.g., 'migration_v0.3.1.sql')
+        backup_path: Path to backup file for rollback on failure
+    
+    Raises:
+        typer.Exit: If migration fails
+    """
+    import sqlite3
+    
+    migration_sql_path = Path(__file__).parent / migration_file
     if not migration_sql_path.exists():
         console.print(
             f"[red]Error: Migration script not found at {migration_sql_path}[/red]"
@@ -418,34 +386,115 @@ def migrate_to_lsp(
 
     console.print("Applying schema changes...")
     try:
-        import sqlite3
-
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
 
         with open(migration_sql_path, "r") as f:
             migration_sql = f.read()
 
-        # Execute migration
         cursor.executescript(migration_sql)
         conn.commit()
         conn.close()
 
-        console.print("[green]✓ Schema updated to v0.3.1[/green]")
-        console.print("\nNew columns added:")
-        console.print("  • entities_v3.symbol_hash (for LSP correlation)")
-        console.print("  • metadata.type_hint (for type information)")
-        console.print("  • relations.is_verified (for LSP validation)")
-        console.print("\n[bold green]Migration complete![/bold green]")
-        console.print(
-            "[yellow]Note: Re-scan with --enable-lsp to populate new columns.[/yellow]"
-        )
+        console.print("[green]✓ Schema migration applied successfully[/green]")
 
     except Exception as e:
         console.print(f"[red]Migration failed: {e}[/red]")
         console.print("[yellow]Restoring from backup...[/yellow]")
         shutil.copy2(backup_path, db_path)
         raise typer.Exit(1)
+
+
+def _perform_rescan_migration(
+    db_path: str, to_version: str, scan_path: str
+) -> None:
+    """
+    Performs a full re-scan migration by deleting the old DB and re-scanning.
+    
+    Args:
+        db_path: Path to the database file
+        to_version: Target schema version
+        scan_path: Directory path to re-scan
+    """
+    console.print("Removing old database...")
+    os.remove(db_path)
+
+    console.print(f"Initializing {to_version} schema and re-scanning {scan_path}...")
+    scan_directory(scan_path, db_path=db_path, verbose=False)
+
+
+# ========== Migration Command ==========
+
+
+@parser_app.command(name="migrate")
+def migrate_database(
+    from_version: str = typer.Option("v0.2", "--from", help="Current schema version."),
+    to_version: str = typer.Option("v0.3", "--to", help="Target schema version."),
+    db_path: str = typer.Option(
+        "./cmm.db", "--db-path", help="Path to SQLite database."
+    ),
+    scan_path: str = typer.Option(
+        ".", "--scan-path", help="Path to re-scan (for full migrations)."
+    ),
+):
+    """
+    Migrates the database to a new schema version.
+    
+    Supported migrations:
+    - v0.2 → v0.3: Full re-scan (backup, delete, re-scan)
+    - v0.3 → v0.3.1: SQL-only (backup, apply migration_v0.3.1.sql)
+    """
+    console.print(
+        f"[bold]Migrating database from {from_version} to {to_version}...[/bold]"
+    )
+
+    db_file = Path(db_path)
+    
+    # Handle new database creation
+    if not db_file.exists():
+        if from_version != "v0.2":
+            console.print(
+                f"[red]Error: Database file {db_path} does not exist.[/red]"
+            )
+            raise typer.Exit(1)
+        console.print(
+            f"[yellow]Database file {db_path} does not exist. Creating new.[/yellow]"
+        )
+        console.print(f"Initializing {to_version} schema and scanning {scan_path}...")
+        scan_directory(scan_path, db_path=db_path, verbose=False)
+        console.print("[bold green]Migration complete![/bold green]")
+        return
+
+    # Create backup
+    backup_path = _create_backup(db_path, from_version)
+
+    # Determine migration strategy based on version pair
+    if from_version == "v0.2" and to_version == "v0.3":
+        # Full re-scan migration
+        _perform_rescan_migration(db_path, to_version, scan_path)
+        
+    elif from_version == "v0.3" and to_version == "v0.3.1":
+        # SQL-only migration
+        _apply_sql_migration(db_path, "migration_v0.3.1.sql", backup_path)
+        
+        console.print("\n[cyan]New columns added:[/cyan]")
+        console.print("  • entities_v3.symbol_hash (for LSP correlation)")
+        console.print("  • metadata.type_hint (for type information)")
+        console.print("  • relations.is_verified (for LSP validation)")
+        console.print(
+            "\n[yellow]Note: Re-scan with --enable-lsp to populate new columns.[/yellow]"
+        )
+        
+    else:
+        console.print(
+            f"[red]Error: Unsupported migration path {from_version} → {to_version}[/red]"
+        )
+        console.print("[yellow]Supported migrations:[/yellow]")
+        console.print("  • v0.2 → v0.3 (full re-scan)")
+        console.print("  • v0.3 → v0.3.1 (SQL-only)")
+        raise typer.Exit(1)
+
+    console.print("[bold green]Migration complete![/bold green]")
 
 
 if __name__ == "__main__":
