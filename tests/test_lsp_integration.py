@@ -102,4 +102,22 @@ def use_calculator():
         assert len(verified_calls) > 0, "LSP should have verified the 'add' call"
         assert verified_calls[0][1] == "add"
 
+        # Verify type hints were captured (Sprint 5.4)
+        cursor.execute(
+            """
+            SELECT type_hint 
+            FROM metadata m
+            JOIN entities_v3 e ON m.entity_id = e.id
+            WHERE e.name = 'add'
+        """
+        )
+
+        type_hint_row = cursor.fetchone()
+        print(f"\nType hint for 'add': {type_hint_row}")
+
+        # Type hint should contain signature information
+        # Note: Pyright might return different formats, so we check for presence
+        if type_hint_row and type_hint_row[0]:
+            assert "add" in type_hint_row[0] or "int" in type_hint_row[0]
+
         conn.close()

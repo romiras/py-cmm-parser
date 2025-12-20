@@ -134,6 +134,35 @@ class SQLiteStorage(StoragePort):
         finally:
             conn.close()
 
+    def save_type_hint(self, entity_id: str, type_hint: str):
+        """
+        Save or update type hint for an entity.
+
+        Args:
+            entity_id: Entity UUID
+            type_hint: Type signature (e.g., "(x: int, y: int) -> int")
+        """
+        conn = sqlite3.connect(self.db_path)
+        conn.execute("PRAGMA foreign_keys = ON;")
+        cursor = conn.cursor()
+
+        try:
+            cursor.execute(
+                """
+                UPDATE metadata
+                SET type_hint = ?
+                WHERE entity_id = ?
+            """,
+                (type_hint, entity_id),
+            )
+
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            raise e
+        finally:
+            conn.close()
+
     def _compute_file_hash(self, file_path: str) -> str:
         """Compute MD5 hash of a file's contents."""
         hasher = hashlib.md5()

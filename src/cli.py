@@ -228,6 +228,19 @@ def scan_directory(
                         )
                         stats["resolved"] += 1
 
+                        # 5. Capture type hint (Sprint 5.4)
+                        type_info = lsp.get_hover(def_loc.uri, def_loc.line, 0)
+                        if type_info and type_info.signature:
+                            storage.save_type_hint(to_id, type_info.signature)
+                            if verbose:
+                                progress.console.print(
+                                    f"  [dim]Type: {type_info.signature[:50]}...[/dim]"
+                                )
+                        elif verbose:
+                            progress.console.print(
+                                f"  [dim yellow]No type info for {site.name}[/dim yellow]"
+                            )
+
                 except Exception as e:
                     if verbose:
                         progress.console.print(
