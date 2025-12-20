@@ -100,6 +100,62 @@ class SQLiteStorage(StoragePort):
         finally:
             conn.close()
 
+    def get_hierarchical_structure(self, verified_only: bool = False) -> List[Dict[str, Any]]:
+        """
+        Query hierarchical structure for GraphML export.
+        
+        Args:
+            verified_only: If True, only include LSP-verified relations
+            
+        Returns:
+            List of root modules with nested children and relations
+        """
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        try:
+            # Fetch all entities
+            cursor.execute("""
+                SELECT e.id, e.name, e.type, e.visibility, e.parent_id,
+                       m.cmm_type, m.signature, m.raw_docstring
+                FROM entities e
+                LEFT JOIN metadata m ON e.id = m.entity_id
+                ORDER BY e.parent_id, e.name
+            """)
+            entities = [dict(row) for row in cursor.fetchall()]
+            
+            # Fetch relations
+            rel_filter = "WHERE is_verified = 1" if verified_only else ""
+            cursor.execute(f"""
+                SELECT from_id, to_id, to_name, rel_type, is_verified
+                FROM relations
+                {rel_filter}
+            """)
+            relations = [dict(row) for row in cursor.fetchall()]
+            
+            # Build hierarchy
+            entity_map = {e['id']: {**e, 'children': [], 'relations': []} for e in entities}
+            
+            # Attach relations
+            for rel in relations:
+                if rel['from_id'] in entity_map:
+                    entity_map[rel['from_id']]['relations'].append(rel)
+            
+            # Build parent-child relationships
+            root_entities = []
+            for entity in entity_map.values():
+                if entity['parent_id'] is None:
+                    root_entities.append(entity)
+                elif entity['parent_id'] in entity_map:
+                    entity_map[entity['parent_id']]['children'].append(entity)
+            
+            return root_entities
+            
+        finally:
+            conn.close()
+
+
     def _init_db(self):
         """Initialize the database schema using v0.4 migration script."""
         migration_path = Path(__file__).parent / "migration_v0.4.sql"

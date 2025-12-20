@@ -120,6 +120,25 @@ uv run python -m cli export intent
 uv run python -m cli export intent -o ../docs/Intent-Map.md
 ```
 
+### Export Structural Map (GraphML)
+
+Generate a **Structural Map** (`.graphml`) for visual architectural analysis in **yEd**.
+
+```bash
+cd src
+
+# Export full structure (Modules -> Classes -> Methods)
+uv run python -m cli export structural -o ../docs/architecture.graphml
+
+# Export only LSP-verified relations (High Confidence)
+uv run python -m cli export structural --verified-only -o ../docs/verified_architecture.graphml
+```
+
+**Usage in yEd**:
+1. Open the `.graphml` file.
+2. Select **Tools > Fit Node to Label** (ensure "Ignore Height" is unchecked).
+3. Select **Layout > Hierarchical**.
+
 ## Testing
 
 The project uses `pytest` for testing. All test commands should be executed from the `src/` directory to ensure proper dependency loading via `uv`.
