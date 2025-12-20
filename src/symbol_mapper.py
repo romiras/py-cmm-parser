@@ -144,11 +144,11 @@ class SymbolMapper:
         cursor = self.conn.cursor()
 
         # Query for entity that contains this line
-        # Join entities_v3 with metadata to get file_path
+        # Join entities with metadata to get file_path
         cursor.execute(
             """
             SELECT e.id 
-            FROM entities_v3 e
+            FROM entities e
             JOIN metadata m ON e.id = m.entity_id
             WHERE m.file_path = ?
               AND e.line_start <= ?
@@ -173,7 +173,7 @@ class SymbolMapper:
         cursor = self.conn.cursor()
         cursor.execute(
             """
-            UPDATE entities_v3
+            UPDATE entities
             SET symbol_hash = ?
             WHERE id = ?
         """,
@@ -221,7 +221,7 @@ class SymbolMapper:
         cursor.execute(
             """
             SELECT e.id, e.name, e.line_start, e.line_end
-            FROM entities_v3 e
+            FROM entities e
             JOIN metadata m ON e.id = m.entity_id
             WHERE m.file_path = ?
             ORDER BY e.line_start ASC

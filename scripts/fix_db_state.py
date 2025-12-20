@@ -22,19 +22,19 @@ def fix_database(db_path: str):
 
         # 2. Add missing columns (idempotent check)
         # SQLite doesn't support ADD COLUMN IF NOT EXISTS directly, so we check PRAGMA
-        cursor.execute("PRAGMA table_info(entities_v3)")
+        cursor.execute("PRAGMA table_info(entities)")
         columns = [row[1] for row in cursor.fetchall()]
 
         if "line_start" not in columns:
             print("Adding line_start column...")
             cursor.execute(
-                "ALTER TABLE entities_v3 ADD COLUMN line_start INTEGER DEFAULT 0"
+                "ALTER TABLE entities ADD COLUMN line_start INTEGER DEFAULT 0"
             )
 
         if "line_end" not in columns:
             print("Adding line_end column...")
             cursor.execute(
-                "ALTER TABLE entities_v3 ADD COLUMN line_end INTEGER DEFAULT 0"
+                "ALTER TABLE entities ADD COLUMN line_end INTEGER DEFAULT 0"
             )
 
         # 3. Create Unique Index

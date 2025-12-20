@@ -60,7 +60,7 @@ class DependencyResolver:
 
         for eid in entity_ids:
             # Get entity name
-            cursor.execute("SELECT name FROM entities_v3 WHERE id = ?", (eid,))
+            cursor.execute("SELECT name FROM entities WHERE id = ?", (eid,))
             row = cursor.fetchone()
             if not row:
                 continue
@@ -122,7 +122,7 @@ class DependencyResolver:
         cursor.execute(
             """
             SELECT e.name, e.type, e.visibility, m.file_path, m.cmm_type
-            FROM entities_v3 e
+            FROM entities e
             JOIN metadata m ON e.id = m.entity_id
             WHERE e.id = ?
         """,
@@ -152,7 +152,7 @@ class DependencyResolver:
         """
         query = """
             SELECT e.name, e.type, e.visibility, m.file_path, m.cmm_type
-            FROM entities_v3 e
+            FROM entities e
             JOIN metadata m ON e.id = m.entity_id
             WHERE e.name = ?
         """

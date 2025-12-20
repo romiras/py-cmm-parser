@@ -47,7 +47,7 @@ class Calculator:
         print("\nEntities scanned:")
         conn = sqlite3.connect(str(db_path))
         cursor = conn.cursor()
-        cursor.execute("SELECT id, name, type FROM entities_v3")
+        cursor.execute("SELECT id, name, type FROM entities")
         entities = cursor.fetchall()
         for eid, name, etype in entities:
             print(f"  {name} ({etype}): {eid}")
@@ -74,7 +74,7 @@ class Calculator:
             print(f"Signature: {type_info.signature}")
 
             # Save to DB
-            cursor.execute("SELECT id FROM entities_v3 WHERE name = 'add'")
+            cursor.execute("SELECT id FROM entities WHERE name = 'add'")
             add_id = cursor.fetchone()
             if add_id:
                 storage.save_type_hint(add_id[0], type_info.signature)
@@ -83,7 +83,7 @@ class Calculator:
         # Verify
         cursor.execute("""
             SELECT e.name, m.type_hint 
-            FROM entities_v3 e
+            FROM entities e
             JOIN metadata m ON e.id = m.entity_id
             WHERE m.type_hint IS NOT NULL
         """)

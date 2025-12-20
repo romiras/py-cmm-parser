@@ -89,7 +89,7 @@ def use_calculator():
         cursor.execute("""
             SELECT e1.name, r.to_name, r.rel_type, r.is_verified 
             FROM relations r
-            JOIN entities_v3 e1 ON r.from_id = e1.id
+            JOIN entities e1 ON r.from_id = e1.id
             WHERE r.to_name = 'add'
         """)
 
@@ -107,7 +107,7 @@ def use_calculator():
             """
             SELECT type_hint 
             FROM metadata m
-            JOIN entities_v3 e ON m.entity_id = e.id
+            JOIN entities e ON m.entity_id = e.id
             WHERE e.name = 'add'
         """
         )

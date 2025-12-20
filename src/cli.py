@@ -442,7 +442,8 @@ def migrate_database(
     
     Supported migrations:
     - v0.2 → v0.3: Full re-scan (backup, delete, re-scan)
-    - v0.3 → v0.3.1: SQL-only (backup, apply migration_v0.3.1.sql)
+    - v0.3 → v0.4: Full re-scan (clean schema without _v3 suffix)
+    - v0.3.1 → v0.4: Full re-scan (clean schema without _v3 suffix)
     """
     console.print(
         f"[bold]Migrating database from {from_version} to {to_version}...[/bold]"
@@ -473,17 +474,16 @@ def migrate_database(
         # Full re-scan migration
         _perform_rescan_migration(db_path, to_version, scan_path)
         
-    elif from_version == "v0.3" and to_version == "v0.3.1":
-        # SQL-only migration
-        _apply_sql_migration(db_path, "migration_v0.3.1.sql", backup_path)
+    elif (from_version == "v0.3" or from_version == "v0.3.1") and to_version == "v0.4":
+        # Full re-scan migration to clean schema
+        console.print("\n[cyan]Migrating to v0.4 (clean schema without _v3 suffix)...[/cyan]")
+        _perform_rescan_migration(db_path, to_version, scan_path)
         
-        console.print("\n[cyan]New columns added:[/cyan]")
-        console.print("  • entities_v3.symbol_hash (for LSP correlation)")
-        console.print("  • metadata.type_hint (for type information)")
-        console.print("  • relations.is_verified (for LSP validation)")
-        console.print(
-            "\n[yellow]Note: Re-scan with --enable-lsp to populate new columns.[/yellow]"
-        )
+        console.print("\n[green]✓ Schema upgraded to v0.4[/green]")
+        console.print("[cyan]Changes:[/cyan]")
+        console.print("  • Table names cleaned: files_v3 → files, entities_v3 → entities")
+        console.print("  • All LSP enhancements included in base schema")
+        console.print("  • Database re-scanned with new schema")
         
     else:
         console.print(
@@ -491,7 +491,8 @@ def migrate_database(
         )
         console.print("[yellow]Supported migrations:[/yellow]")
         console.print("  • v0.2 → v0.3 (full re-scan)")
-        console.print("  • v0.3 → v0.3.1 (SQL-only)")
+        console.print("  • v0.3 → v0.4 (full re-scan, clean schema)")
+        console.print("  • v0.3.1 → v0.4 (full re-scan, clean schema)")
         raise typer.Exit(1)
 
     console.print("[bold green]Migration complete![/bold green]")

@@ -7,7 +7,7 @@ from storage import SQLiteStorage
 
 class TestSQLiteStorageV3(unittest.TestCase):
     def setUp(self):
-        self.db_path = "test_cmm_v3.db"
+        self.db_path = "test_cmm.db"
         # Ensure clean slate
         if os.path.exists(self.db_path):
             os.remove(self.db_path)
@@ -27,8 +27,8 @@ class TestSQLiteStorageV3(unittest.TestCase):
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
         tables = [r[0] for r in cursor.fetchall()]
 
-        self.assertIn("files_v3", tables)
-        self.assertIn("entities_v3", tables)
+        self.assertIn("files", tables)
+        self.assertIn("entities", tables)
         self.assertIn("metadata", tables)
         self.assertIn("relations", tables)
 
@@ -71,8 +71,8 @@ class TestSQLiteStorageV3(unittest.TestCase):
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
-        # Check entities_v3
-        cursor.execute("SELECT name, type FROM entities_v3")
+        # Check entities
+        cursor.execute("SELECT name, type FROM entities")
         rows = cursor.fetchall()
         names = sorted([r[0] for r in rows])
         self.assertEqual(names, ["MyClass", "my_method"])
@@ -120,7 +120,7 @@ class TestSQLiteStorageV3(unittest.TestCase):
         # Verify OldClass exists
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-        cursor.execute("SELECT name FROM entities_v3 WHERE name='OldClass'")
+        cursor.execute("SELECT name FROM entities WHERE name='OldClass'")
         self.assertTrue(cursor.fetchone())
         conn.close()
 
@@ -135,10 +135,10 @@ class TestSQLiteStorageV3(unittest.TestCase):
         # Verify OldClass gone, NewClass exists
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-        cursor.execute("SELECT name FROM entities_v3 WHERE name='OldClass'")
-        self.assertFalse(cursor.fetchone())
+        cursor.execute("SELECT name FROM entities WHERE name='OldClass'")
+        self.assertEqual(len(cursor.fetchall()), 0)
 
-        cursor.execute("SELECT name FROM entities_v3 WHERE name='NewClass'")
+        cursor.execute("SELECT name FROM entities WHERE name='NewClass'")
         self.assertTrue(cursor.fetchone())
         conn.close()
 
