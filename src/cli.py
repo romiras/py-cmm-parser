@@ -15,6 +15,7 @@ from resolver import DependencyResolver
 from lsp_client import LSPClient
 from symbol_mapper import SymbolMapper
 from domain import CallSite
+from reporting import MarkdownIntentAdapter
 import time
 
 # Constants
@@ -22,7 +23,10 @@ MAX_TYPE_HINT_DISPLAY_LENGTH = 50
 
 app = typer.Typer(help="Root CLI for CMM tools.")
 parser_app = typer.Typer(help="Tools for parsing source code into CMM entities.")
+export_app = typer.Typer(help="Tools for exporting CMM data.")
+
 app.add_typer(parser_app, name="parser")
+app.add_typer(export_app, name="export")
 console = Console(width=120)
 
 
@@ -569,6 +573,48 @@ def migrate_database(
         raise typer.Exit(1)
 
     console.print("[bold green]Migration complete![/bold green]")
+
+
+# ========== Export Commands ==========
+
+
+@export_app.command(name="intent")
+def export_intent(
+    db_path: str = typer.Option(
+        "./cmm.db", "--db-path", help="Path to SQLite database."
+    ),
+    output_file: str = typer.Option(
+        None, "--output", "-o", help="Output file path (default: print to stdout)."
+    ),
+):
+    """
+    Export the Intent Template (Markdown).
+    
+    Generates a structured view of the system's intent, highlighting 
+    Public Contracts and Verified Implementation details.
+    """
+    storage = SQLiteStorage(db_path=db_path)
+    adapter = MarkdownIntentAdapter()
+    
+    with console.status("Querying hierarchical intent..."):
+        intent_data = storage.get_hierarchical_intent()
+    
+    if not intent_data:
+        console.print("[yellow]No intent data found. Have you scanned any files?[/yellow]")
+        return
+
+    report = adapter.generate(intent_data)
+    
+    if output_file:
+        try:
+            with open(output_file, "w") as f:
+                f.write(report)
+            console.print(f"[green]✓ Intent Template exported to: {output_file}[/green]")
+        except Exception as e:
+            console.print(f"[red]Error writing to file: {e}[/red]")
+            raise typer.Exit(1)
+    else:
+        console.print(report)
 
 
 if __name__ == "__main__":

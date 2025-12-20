@@ -106,6 +106,20 @@ sqlite3 src/cmm.db "SELECT type, COUNT(*) FROM entities GROUP BY type;"
 sqlite3 src/cmm.db "SELECT from_id, to_name, rel_type FROM relations LIMIT 10;"
 ```
 
+### Export Intent (PRD Generation)
+
+Generate a high-level **Intent Template (Markdown)** suitable for LLMs or documentation. This maps the public interface ("The What") to verified implementation details ("The How").
+
+```bash
+cd src
+
+# Print to stdout
+uv run python -m cli export intent
+
+# Save to file
+uv run python -m cli export intent -o ../docs/Intent-Map.md
+```
+
 ## Testing
 
 The project uses `pytest` for testing. All test commands should be executed from the `src/` directory to ensure proper dependency loading via `uv`.

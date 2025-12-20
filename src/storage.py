@@ -1,7 +1,7 @@
 import sqlite3
 import hashlib
 import uuid
-from typing import Protocol, Optional, Dict, Any
+from typing import Protocol, Optional, Dict, Any, List
 from pathlib import Path
 from datetime import datetime
 from domain import CMMEntity
@@ -29,6 +29,76 @@ class SQLiteStorage(StoragePort):
     def __init__(self, db_path: str = "./cmm.db"):
         self.db_path = db_path
         self._init_db()
+
+    def get_hierarchical_intent(self) -> List[Dict[str, Any]]:
+        """
+        Retrieves the hierarchical intent structure.
+        Returns a list of root (module) entities, each containing their children.
+        """
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        try:
+            # 1. Fetch all entities with metadata
+            query = """
+                SELECT 
+                    e.id, e.name, e.type, e.visibility, e.parent_id,
+                    m.raw_docstring, m.type_hint, m.file_path
+                FROM entities e
+                LEFT JOIN metadata m ON e.id = m.entity_id
+                ORDER BY e.parent_id NULLS FIRST, m.file_path
+            """
+            cursor.execute(query)
+            all_rows = cursor.fetchall()
+
+            # 2. Fetch all verified relations
+            rel_query = """
+                SELECT from_id, to_name, rel_type, is_verified
+                FROM relations
+                WHERE is_verified = 1
+            """
+            cursor.execute(rel_query)
+            all_relations = cursor.fetchall()
+            
+            # Map relations to from_id
+            relations_map = {}
+            for r in all_relations:
+                fid = r["from_id"]
+                if fid not in relations_map:
+                    relations_map[fid] = []
+                relations_map[fid].append(dict(r))
+
+            # 3. Build Tree
+            # First pass: Create dict of all entities
+            entities_map = {}
+            roots = []
+
+            for row in all_rows:
+                entity = dict(row)
+                entity["docstring"] = entity.pop("raw_docstring") # Rename for convenience
+                entity["children"] = []
+                entity["relations"] = relations_map.get(entity["id"], [])
+                entities_map[entity["id"]] = entity
+
+            # Second pass: Link parents and children
+            for eid, entity in entities_map.items():
+                pid = entity["parent_id"]
+                if pid and pid in entities_map:
+                    entities_map[pid]["children"].append(entity)
+                else:
+                    # Treat as root if parent is null (Modules) usually
+                    # Note: In CMM, modules are roots.
+                    if entity["type"] == "module":
+                        roots.append(entity)
+                    elif pid is None: 
+                        # Fallback for parsing artifacts or orphan nodes
+                        roots.append(entity)
+            
+            return roots
+
+        finally:
+            conn.close()
 
     def _init_db(self):
         """Initialize the database schema using v0.4 migration script."""
