@@ -7,8 +7,8 @@ A Python-based Canonical Metadata Model (CMM) parser that extracts structured in
 - **Tree-sitter Parsing**: Uses Tree-sitter 0.25.x for robust Python code parsing.
 - **Deep Method Analysis**: Traverses method bodies to extract internal calls and dependencies.
 - **Normalization**: Maps Python-specific constructs (methods, decorators) to language-neutral CMM types.
-- **Relational-Graph Model**: Stores entities in a hierarchical structure with typed relations (**v0.3.1**).
-- **Semantic Layer (Beta)**: High-fidelity LSP client foundation for deterministic linking via Pyright.
+- **Relational-Graph Model**: Stores entities in a hierarchical structure with typed relations (**v0.4**).
+- **Semantic Layer**: High-fidelity LSP client foundation for deterministic linking via Pyright.
 - **Hybrid Resolution**: Combines fast lazy resolution with compiler-grade accuracy for verified links.
 - **Rich CLI**: Beautiful terminal output with progress indicators and typed dependency tables.
 
@@ -84,25 +84,23 @@ uv run python -m cli parser resolve <file-path> --json
 
 ```bash
 cd src
-# Migrate from v0.2 to v0.3 (includes backup and re-scan)
-uv run python -m cli parser migrate --from v0.2 --to v0.3
-
-# Migrate from v0.3 to v0.3.1 (SQL-only, adds LSP columns)
-uv run python -m cli parser migrate --from v0.3 --to v0.3.1
+# Migrate from v0.3 to v0.4 (Full re-scan, clean table names)
+uv run python -m cli parser migrate --from v0.3 --to v0.4 --scan-path .
 ```
 
 **Supported Migration Paths**:
-- **v0.2 → v0.3**: Full re-scan migration (backup, delete old DB, re-scan with new schema)
-- **v0.3 → v0.3.1**: SQL-only migration (backup, apply schema changes for LSP support)
+- **v0.2 → v0.3**: Full re-scan (backup, delete old DB, re-scan with new schema)
+- **v0.3 → v0.4**: Full re-scan (clean schema without `_v3` suffix)
+- **v0.3.1 → v0.4**: Full re-scan (clean schema without `_v3` suffix)
 
-### Inspect the Database (v0.3)
+### Inspect the Database (v0.4)
 
 ```bash
 # View stored files and schema versions
-sqlite3 src/cmm.db "SELECT file_path, schema_version FROM files_v3;"
+sqlite3 src/cmm.db "SELECT file_path, schema_version FROM files;"
 
 # Count entities by type
-sqlite3 src/cmm.db "SELECT type, COUNT(*) FROM entities_v3 GROUP BY type;"
+sqlite3 src/cmm.db "SELECT type, COUNT(*) FROM entities GROUP BY type;"
 
 # View relations (calls, inherits)
 sqlite3 src/cmm.db "SELECT from_id, to_name, rel_type FROM relations LIMIT 10;"
@@ -131,15 +129,14 @@ uv run pytest test_lsp_client.py -v
 **Integration Tests**:
 ```bash
 cd src
-export PYTHONPATH=$PYTHONPATH:.
-uv run pytest ../tests/test_lsp_integration.py -v
+PYTHONPATH=. uv run pytest ../tests/test_lsp_integration.py -v
 ```
 
 ## Architecture
 
 ### Hexagonal Architecture (Ports & Adapters)
 
-- **Domain**: `CMMEntity` - Hierarchical container for parsed entities (**v0.3.1**)
+- **Domain**: `CMMEntity` - Hierarchical container for parsed entities (**v0.4**)
 - **Ports**: 
   - `ParserPort` - Interface for file parsing
   - `StoragePort` - Interface for entity storage
@@ -150,12 +147,12 @@ uv run pytest ../tests/test_lsp_integration.py -v
   - `PythonNormalizer` - Maps Python constructs to CMM types
   - `DependencyResolver` - Resolves cross-file links using the Relational DB
 
-### Database Schema (v0.3.1)
+### Database Schema (v0.4 - Clean)
 
-- **entities_v3**: Stores hierarchy (Modules, Classes, Methods) via `parent_id`.
-- **metadata**: Language-agnostic metadata linked to entities (docstrings, signatures, CMM types).
-- **relations**: Captures "calls", "inherits", or "depends_on" with lazy resolution support.
-- **files_v3**: Change detection and schema version tracking.
+- **entities**: Stores hierarchy (Modules, Classes, Methods) via `parent_id`.
+- **metadata**: Language-agnostic metadata linked to entities (docstrings, signatures, CMM types, type hints).
+- **relations**: Captures "calls", "inherits", or "depends_on" with LSP verification tracking.
+- **files**: Change detection and schema version tracking.
 
 ## Development
 
@@ -176,25 +173,27 @@ py-cmm-parser/
 - ✅ **Sprint 2**: SQLite storage and directory scanning
 - ✅ **Sprint 3**: Normalization and Lazy Resolution
 - ✅ **Sprint 4**: Schema Migration & Deep Method Analysis
-- ⚙️ **Sprint 5**: LSP Integration
-  - ✅ v0.3.1 schema with LSP-ready columns
-  - ✅ Unified migration command (v0.2→v0.3, v0.3→v0.3.1)
+- ⚙️ **Sprint 5**: LSP Integration & Schema Polish
+  - ✅ v0.4 clean schema (removed `_v3` suffixes)
+  - ✅ Unified migration command (v0.2→v0.3, v0.3→v0.4)
   - ✅ LSP client with Pyright integration
   - ✅ Type enrichment via hover information
 
 ## Latest Updates
 
-### v0.3.1 Schema (LSP-Ready)
+### v0.4 Clean Schema
 
-Sprint 5 introduced three new columns to support Language Server Protocol integration:
-- `entities_v3.symbol_hash` - Unique identifier for LSP correlation
+Sprint 5 completed with a transition to a clean schema (v0.4), removing all version suffixes (`_v3`) for improved codebase health.
+
+**Highlights**:
+- `entities.symbol_hash` - Unique identifier for LSP correlation
 - `metadata.type_hint` - Parameter and return type information
 - `relations.is_verified` - Boolean flag for LSP-validated links
 
-**Migrate Existing Database**:
+**Migrate to Clean Schema**:
 ```bash
 cd src
-uv run python -m cli parser migrate --from v0.3 --to v0.3.1
+uv run python -m cli parser migrate --from v0.3 --to v0.4 --scan-path .
 ```
 
 This upgrade enables deterministic dependency linking via Pyright (95%+ accuracy vs 60-80% with Lazy Linker).

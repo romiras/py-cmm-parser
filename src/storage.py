@@ -31,8 +31,8 @@ class SQLiteStorage(StoragePort):
         self._init_db()
 
     def _init_db(self):
-        """Initialize the database schema using v0.3 migration script."""
-        migration_path = Path(__file__).parent / "migration_v0.3.sql"
+        """Initialize the database schema using v0.4 migration script."""
+        migration_path = Path(__file__).parent / "migration_v0.4.sql"
 
         # Fallback if file doesn't exist (e.g. running from different context)
         if not migration_path.exists():
@@ -53,38 +53,6 @@ class SQLiteStorage(StoragePort):
         # Execute migration script (creates tables if not exist)
         cursor.executescript(schema_sql)
 
-        # Apply v0.3.1 schema (LSP enhancements) if available
-        # We execute statements individually to handle "column exists" errors gracefully
-        migration_3_1_path = Path(__file__).parent / "migration_v0.3.1.sql"
-        if migration_3_1_path.exists():
-            with open(migration_3_1_path, "r") as f:
-                schema_3_1_sql = f.read()
-
-            # Split by semicolon to run statements one by one
-            statements = [s.strip() for s in schema_3_1_sql.split(";") if s.strip()]
-
-            for stmt in statements:
-                try:
-                    cursor.execute(stmt)
-                except sqlite3.OperationalError as e:
-                    # Ignore "duplicate column name" errors
-                    if "duplicate column name" in str(e):
-                        continue
-                    # Ignore "index already exists" errors
-                    if "already exists" in str(e):
-                        continue
-                    print(f"Warning: Migration statement failed: {stmt[:50]}... -> {e}")
-
-        # Ensure UNIQUE constraint for UPSERT support (Sprint 5.3)
-        # We drop the old non-unique index if it exists (optional, but clean)
-        # And ensure the unique one exists
-        try:
-            cursor.execute(
-                "CREATE UNIQUE INDEX IF NOT EXISTS idx_relations_unique ON relations(from_id, to_name, rel_type);"
-            )
-        except sqlite3.OperationalError as e:
-            print(f"Warning: Could not create unique index: {e}")
-
         conn.commit()
         conn.close()
 
@@ -104,7 +72,7 @@ class SQLiteStorage(StoragePort):
 
         try:
             # Get target entity name for to_name field
-            cursor.execute("SELECT name FROM entities_v3 WHERE id = ?", (to_id,))
+            cursor.execute("SELECT name FROM entities WHERE id = ?", (to_id,))
             row = cursor.fetchone()
             if not row:
                 conn.close()
@@ -180,17 +148,17 @@ class SQLiteStorage(StoragePort):
         cursor = conn.cursor()
 
         try:
-            # 1. Insert into files_v3
+            # 1. Insert into files
             cursor.execute(
                 """
-                INSERT INTO files_v3 (file_path, file_hash, schema_version, created_at, updated_at)
+                INSERT INTO files (file_path, file_hash, schema_version, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?)
             """,
                 (file_path, file_hash, cmm_entity.schema_version, now, now),
             )
 
             # 2. Save Entity Hierarchy
-            # We don't have a 'file_id' FK in entities_v3 directly, we track file via METADATA table
+            # We don't have a 'file_id' FK in entities directly, we track file via METADATA table
             # Top-level entities have parent_id = NULL
 
             for entity in cmm_entity.entities:
@@ -218,8 +186,22 @@ class SQLiteStorage(StoragePort):
         file_path: str,
         now: str,
         parent_id: Optional[str],
+        depth: int = 0,
     ):
-        """Recursively save an entity and its children."""
+        """Recursively save an entity and its children.
+        
+        Args:
+            depth: Current recursion depth (safety limit: 100)
+        """
+        # Safety check to prevent infinite recursion
+        if depth > 100:
+            import sys
+            print(
+                f"[ERROR] Maximum recursion depth exceeded for entity: {entity.get('name')} "
+                f"(Type: {entity.get('type')})",
+                file=sys.stderr
+            )
+            return
 
         # Generate new UUID for this entity
         entity_id = str(uuid.uuid4())
@@ -231,10 +213,10 @@ class SQLiteStorage(StoragePort):
         line_start = entity.get("line_start", 0)
         line_end = entity.get("line_end", 0)
 
-        # 1. Insert into entities_v3
+        # 1. Insert into entities
         cursor.execute(
             """
-            INSERT INTO entities_v3 (id, name, type, visibility, parent_id, line_start, line_end)
+            INSERT INTO entities (id, name, type, visibility, parent_id, line_start, line_end)
             VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
             (entity_id, name, entity_type, visibility, parent_id, line_start, line_end),
@@ -266,7 +248,10 @@ class SQLiteStorage(StoragePort):
         )
 
         # 3. Insert into relations (Dependencies)
+        # Deduplicate dependencies to avoid UNIQUE constraint violations
         dependencies = entity.get("dependencies", [])
+        seen_relations = set()
+        
         for dep in dependencies:
             if isinstance(dep, str):
                 # Old format (v0.2): just a name string (assumed to be inheritance or import)
@@ -282,20 +267,24 @@ class SQLiteStorage(StoragePort):
                 continue
 
             # Insert relation with to_id=NULL (Lazy Resolution)
+            # Skip if we've already seen this (dep_name, rel_type) pair
             if dep_name:
-                cursor.execute(
-                    """
-                    INSERT INTO relations (from_id, to_name, rel_type)
-                    VALUES (?, ?, ?)
-                """,
-                    (entity_id, dep_name, rel_type),
-                )
+                relation_key = (dep_name, rel_type)
+                if relation_key not in seen_relations:
+                    seen_relations.add(relation_key)
+                    cursor.execute(
+                        """
+                        INSERT INTO relations (from_id, to_name, rel_type)
+                        VALUES (?, ?, ?)
+                    """,
+                        (entity_id, dep_name, rel_type),
+                    )
 
         # 4. Recursively save children (methods)
         methods = entity.get("methods", [])
         for method in methods:
             self._save_entity_recursive(
-                cursor, method, file_path, now, parent_id=entity_id
+                cursor, method, file_path, now, parent_id=entity_id, depth=depth + 1
             )
 
     def upsert_file(self, file_path: str, cmm_entity: CMMEntity) -> None:
@@ -309,7 +298,7 @@ class SQLiteStorage(StoragePort):
 
         # Check existing file
         cursor.execute(
-            "SELECT id, file_hash FROM files_v3 WHERE file_path = ?", (file_path,)
+            "SELECT id, file_hash FROM files WHERE file_path = ?", (file_path,)
         )
         row = cursor.fetchone()
 
@@ -322,7 +311,7 @@ class SQLiteStorage(StoragePort):
             # Update file record
             cursor.execute(
                 """
-                UPDATE files_v3 
+                UPDATE files 
                 SET file_hash = ?, schema_version = ?, updated_at = ?
                 WHERE id = ?
             """,
@@ -330,9 +319,9 @@ class SQLiteStorage(StoragePort):
             )
 
             # Delete old entities for this file
-            # Since we have ON DELETE CASCADE on metadata(entity_id) -> entities_v3(id),
-            # we need to find all entities belonging to this file and delete them from entities_v3.
-            # But entities_v3 doesn't have file_id. metadata has file_path.
+            # Since we have ON DELETE CASCADE on metadata(entity_id) -> entities(id),
+            # we need to find all entities belonging to this file and delete them from entities.
+            # But entities doesn't have file_id. metadata has file_path.
 
             # Find definitions in this file
             cursor.execute(
@@ -341,16 +330,16 @@ class SQLiteStorage(StoragePort):
             entity_ids = [r[0] for r in cursor.fetchall()]
 
             if entity_ids:
-                # Delete from entities_v3. This triggers CASCADE delete on metadata and relations(from_id)
-                # We need to be careful about parent/child. Deleting parent deletes child (ON DELETE CASCADE in entities_v3).
+                # Delete from entities. This triggers CASCADE delete on metadata and relations(from_id)
+                # We need to be careful about parent/child. Deleting parent deletes child (ON DELETE CASCADE in entities).
                 # So we just need to delete the entities found.
                 # Ideally, deleting top-level entities cascades down.
                 # Just deleting all IDs found in metadata should work, as long as we don't double-delete.
-                # Alternatively: delete from entities_v3 where id in (...)
+                # Alternatively: delete from entities where id in (...)
 
                 placeholders = ",".join("?" for _ in entity_ids)
                 cursor.execute(
-                    f"DELETE FROM entities_v3 WHERE id IN ({placeholders})", entity_ids
+                    f"DELETE FROM entities WHERE id IN ({placeholders})", entity_ids
                 )
 
             # Insert new entities
@@ -376,7 +365,7 @@ class SQLiteStorage(StoragePort):
 
         # Check file existence
         cursor.execute(
-            "SELECT schema_version FROM files_v3 WHERE file_path = ?", (file_path,)
+            "SELECT schema_version FROM files WHERE file_path = ?", (file_path,)
         )
         row = cursor.fetchone()
         if not row:
@@ -386,11 +375,11 @@ class SQLiteStorage(StoragePort):
         schema_version = row[0]
 
         # Get all entities for this file via metadata
-        # We also need their hierarchy (parent_id) from entities_v3
+        # We also need their hierarchy (parent_id) from entities
         query = """
             SELECT e.id, e.name, e.type, e.visibility, e.parent_id, 
                    m.raw_docstring, m.cmm_type, m.method_kind
-            FROM entities_v3 e
+            FROM entities e
             JOIN metadata m ON e.id = m.entity_id
             WHERE m.file_path = ?
         """
