@@ -153,28 +153,10 @@ class TreeSitterParser(ParserPort):
         decorator_map: Dict[int, List[str]] = {}
 
         # Pass 1: Collect decorators and create entities
-        for node, capture_name in captures:
-            if capture_name == "decorator.name":
-                self._process_decorator(node, decorator_map)
-            elif capture_name == "class.name":
-                self._create_class_entity(node, node_to_entity)
-            elif capture_name in ["function.name", "decorated_function.name"]:
-                self._create_function_entity(node, node_to_entity, decorator_map)
+        self._collect_entities(captures, node_to_entity, decorator_map)
 
         # Pass 2: Populate entity metadata (docstrings, base classes, calls, imports)
-        for node, capture_name in captures:
-            if capture_name in [
-                "class.docstring",
-                "function.docstring",
-                "decorated_function.docstring",
-            ]:
-                self._add_docstring(node, node_to_entity)
-            elif capture_name == "class.bases":
-                self._add_base_classes(node, node_to_entity)
-            elif capture_name in ["function.body", "decorated_function.body"]:
-                self._extract_calls_from_body(node, node_to_entity)
-            elif capture_name in ["import.module", "import_from.module"]:
-                self._add_import_dependency(node, node_to_entity, captures)
+        self._populate_metadata(captures, node_to_entity)
 
         # Pass 3: Build class hierarchy (nest methods inside classes)
         self._build_hierarchy(captures, node_to_entity)
@@ -189,6 +171,39 @@ class TreeSitterParser(ParserPort):
         # Normalize and return
         normalized_entities = self.normalizer.normalize_entities(final_entities)
         return CMMEntity(schema_version="v0.3", entities=normalized_entities)
+
+    def _collect_entities(
+        self,
+        captures: List[tuple],
+        node_to_entity: Dict[int, Dict[str, Any]],
+        decorator_map: Dict[int, List[str]],
+    ):
+        """Pass 1: Collect decorators and create entities."""
+        for node, capture_name in captures:
+            if capture_name == "decorator.name":
+                self._process_decorator(node, decorator_map)
+            elif capture_name == "class.name":
+                self._create_class_entity(node, node_to_entity)
+            elif capture_name in ["function.name", "decorated_function.name"]:
+                self._create_function_entity(node, node_to_entity, decorator_map)
+
+    def _populate_metadata(
+        self, captures: List[tuple], node_to_entity: Dict[int, Dict[str, Any]]
+    ):
+        """Pass 2: Populate entity metadata."""
+        for node, capture_name in captures:
+            if capture_name in [
+                "class.docstring",
+                "function.docstring",
+                "decorated_function.docstring",
+            ]:
+                self._add_docstring(node, node_to_entity)
+            elif capture_name == "class.bases":
+                self._add_base_classes(node, node_to_entity)
+            elif capture_name in ["function.body", "decorated_function.body"]:
+                self._extract_calls_from_body(node, node_to_entity)
+            elif capture_name in ["import.module", "import_from.module"]:
+                self._add_import_dependency(node, node_to_entity, captures)
 
     def _process_decorator(self, node: Node, decorator_map: Dict[int, List[str]]):
         """Extract decorator name and map it to its function."""

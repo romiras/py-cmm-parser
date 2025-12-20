@@ -186,8 +186,22 @@ class SQLiteStorage(StoragePort):
         file_path: str,
         now: str,
         parent_id: Optional[str],
+        depth: int = 0,
     ):
-        """Recursively save an entity and its children."""
+        """Recursively save an entity and its children.
+        
+        Args:
+            depth: Current recursion depth (safety limit: 100)
+        """
+        # Safety check to prevent infinite recursion
+        if depth > 100:
+            import sys
+            print(
+                f"[ERROR] Maximum recursion depth exceeded for entity: {entity.get('name')} "
+                f"(Type: {entity.get('type')})",
+                file=sys.stderr
+            )
+            return
 
         # Generate new UUID for this entity
         entity_id = str(uuid.uuid4())
@@ -234,7 +248,10 @@ class SQLiteStorage(StoragePort):
         )
 
         # 3. Insert into relations (Dependencies)
+        # Deduplicate dependencies to avoid UNIQUE constraint violations
         dependencies = entity.get("dependencies", [])
+        seen_relations = set()
+        
         for dep in dependencies:
             if isinstance(dep, str):
                 # Old format (v0.2): just a name string (assumed to be inheritance or import)
@@ -250,20 +267,24 @@ class SQLiteStorage(StoragePort):
                 continue
 
             # Insert relation with to_id=NULL (Lazy Resolution)
+            # Skip if we've already seen this (dep_name, rel_type) pair
             if dep_name:
-                cursor.execute(
-                    """
-                    INSERT INTO relations (from_id, to_name, rel_type)
-                    VALUES (?, ?, ?)
-                """,
-                    (entity_id, dep_name, rel_type),
-                )
+                relation_key = (dep_name, rel_type)
+                if relation_key not in seen_relations:
+                    seen_relations.add(relation_key)
+                    cursor.execute(
+                        """
+                        INSERT INTO relations (from_id, to_name, rel_type)
+                        VALUES (?, ?, ?)
+                    """,
+                        (entity_id, dep_name, rel_type),
+                    )
 
         # 4. Recursively save children (methods)
         methods = entity.get("methods", [])
         for method in methods:
             self._save_entity_recursive(
-                cursor, method, file_path, now, parent_id=entity_id
+                cursor, method, file_path, now, parent_id=entity_id, depth=depth + 1
             )
 
     def upsert_file(self, file_path: str, cmm_entity: CMMEntity) -> None:
