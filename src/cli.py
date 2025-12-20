@@ -617,5 +617,67 @@ def export_intent(
         console.print(report)
 
 
+@export_app.command(name="structural")
+def export_structural(
+    db_path: str = typer.Option(
+        "./cmm.db", "--db-path", help="Path to SQLite database."
+    ),
+    output_file: str = typer.Option(
+        None, "--output", "-o", help="Output file path (default: stdout)."
+    ),
+    format: str = typer.Option(
+        "graphml", "--format", help="Export format (currently: graphml)."
+    ),
+    verified_only: bool = typer.Option(
+        False, "--verified-only", help="Only include LSP-verified relations."
+    ),
+):
+    """
+    Export the structural map (GraphML) for visual analysis in yEd.
+    
+    Generates a hierarchical graph with:
+    - Modules as groups (light blue)
+    - Classes as containers (yellow)
+    - Methods color-coded by visibility (green=public, red=private)
+    - Edges styled by verification (solid=LSP, dashed=lazy)
+    """
+    try:
+        from graphml_adapter import PyedGraphMLAdapter
+        
+        # Initialize storage
+        storage = SQLiteStorage(db_path)
+        
+        # Query hierarchical structure
+        console.print(f"[bold blue]Querying structural data from {db_path}...[/bold blue]")
+        hierarchical_data = storage.get_hierarchical_structure(verified_only)
+        
+        if not hierarchical_data:
+            console.print("[yellow]No entities found in database.[/yellow]")
+            raise typer.Exit(1)
+        
+        # Generate GraphML
+        console.print("[bold blue]Generating GraphML...[/bold blue]")
+        adapter = PyedGraphMLAdapter()
+        graphml_content = adapter.generate(hierarchical_data, verified_only)
+        
+        # Output
+        if output_file:
+            Path(output_file).write_text(graphml_content)
+            console.print(f"[green]✓ GraphML exported to {output_file}[/green]")
+            console.print(f"\n[dim]Next steps:[/dim]")
+            console.print(f"  1. Open {output_file} in yEd")
+            console.print(f"  2. Apply Tools > Fit Node to Label")
+            console.print(f"  3. Apply Layout > Hierarchical")
+        else:
+            print(graphml_content)
+        
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        import traceback
+        traceback.print_exc()
+        raise typer.Exit(1)
+
+
+
 if __name__ == "__main__":
     app()
