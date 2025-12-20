@@ -7,10 +7,9 @@ A Python-based Canonical Metadata Model (CMM) parser that extracts structured in
 - **Tree-sitter Parsing**: Uses Tree-sitter 0.25.x for robust Python code parsing.
 - **Deep Method Analysis**: Traverses method bodies to extract internal calls and dependencies.
 - **Normalization**: Maps Python-specific constructs (methods, decorators) to language-neutral CMM types.
-- **Relational-Graph Model**: Stores entities in a hierarchical structure with typed relations (v0.3).
-- **SQLite Storage**: Persists parsed entities with file hash tracking for efficient re-scanning.
-- **Directory Scanning**: Recursively scans directories for Python files.
-- **Lazy Resolution**: Resolves cross-file dependencies (inheritance, calls, imports) on-demand.
+- **Relational-Graph Model**: Stores entities in a hierarchical structure with typed relations (**v0.3.1**).
+- **Semantic Layer (Beta)**: High-fidelity LSP client foundation for deterministic linking via Pyright.
+- **Hybrid Resolution**: Combines fast lazy resolution with compiler-grade accuracy for verified links.
 - **Rich CLI**: Beautiful terminal output with progress indicators and typed dependency tables.
 
 ## Installation
@@ -140,7 +139,7 @@ uv run pytest ../tests/test_lsp_integration.py -v
 
 ### Hexagonal Architecture (Ports & Adapters)
 
-- **Domain**: `CMMEntity` - Hierarchical container for parsed entities (v0.3)
+- **Domain**: `CMMEntity` - Hierarchical container for parsed entities (**v0.3.1**)
 - **Ports**: 
   - `ParserPort` - Interface for file parsing
   - `StoragePort` - Interface for entity storage
@@ -151,7 +150,7 @@ uv run pytest ../tests/test_lsp_integration.py -v
   - `PythonNormalizer` - Maps Python constructs to CMM types
   - `DependencyResolver` - Resolves cross-file links using the Relational DB
 
-### Database Schema (v0.3)
+### Database Schema (v0.3.1)
 
 - **entities_v3**: Stores hierarchy (Modules, Classes, Methods) via `parent_id`.
 - **metadata**: Language-agnostic metadata linked to entities (docstrings, signatures, CMM types).
@@ -164,20 +163,11 @@ uv run pytest ../tests/test_lsp_integration.py -v
 
 ```
 py-cmm-parser/
-├── src/
-│   ├── cli.py          # CLI commands
-│   ├── domain.py       # Domain models
-│   ├── parser.py       # Tree-sitter parser with body traversal
-│   ├── storage.py      # SQLite relational storage
-│   ├── normalizer.py   # Normalization service
-│   ├── resolver.py     # Dependency resolution service
-│   └── migration_v0.3.sql # Schema definition
-└── docs/
-    ├── Plan-sprint-1.md
-    ├── Plan-sprint-2.md
-    ├── Plan-sprint-3.md
-    ├── Plan-sprint-4.md
-    └── Plan-sprint-5.md
+├── src/      # Core logic, adapters, and CLI
+├── tests/    # Unit and integration test suites
+├── scripts/  # LSP troubleshooting and diagnostic tools
+├── docs/     # Planning, architecture, and sprint solutions
+└── vendor/   # Third-party dependencies and grammars
 ```
 
 ### Sprint Progress
