@@ -52,11 +52,44 @@ CALL_QUERY = """
 
 # Python built-in functions and keywords to exclude from call dependencies
 PYTHON_BUILTINS = {
-    'self', 'cls',  # Common method parameters
-    'print', 'len', 'str', 'int', 'float', 'bool', 'list', 'dict', 'set', 'tuple',
-    'range', 'enumerate', 'zip', 'map', 'filter', 'sorted', 'sum', 'min', 'max',
-    'abs', 'all', 'any', 'isinstance', 'issubclass', 'hasattr', 'getattr', 'setattr',
-    'open', 'type', 'id', 'hash', 'repr', 'format', 'input', 'next', 'iter'
+    "self",
+    "cls",  # Common method parameters
+    "print",
+    "len",
+    "str",
+    "int",
+    "float",
+    "bool",
+    "list",
+    "dict",
+    "set",
+    "tuple",
+    "range",
+    "enumerate",
+    "zip",
+    "map",
+    "filter",
+    "sorted",
+    "sum",
+    "min",
+    "max",
+    "abs",
+    "all",
+    "any",
+    "isinstance",
+    "issubclass",
+    "hasattr",
+    "getattr",
+    "setattr",
+    "open",
+    "type",
+    "id",
+    "hash",
+    "repr",
+    "format",
+    "input",
+    "next",
+    "iter",
 }
 
 
@@ -68,17 +101,43 @@ class TreeSitterParser(ParserPort):
         self.language = Language(language())
         self.parser.language = self.language
         self.normalizer = PythonNormalizer()
-        
+
         self.cmm_query = Query(self.language, CMM_QUERY)
         self.call_query = Query(self.language, CALL_QUERY)
-        
+
         self.debug_mode = os.environ.get("CMM_DEBUG") == "1"
+
+    def extract_call_sites(self, file_path: str) -> List[Any]:
+        """
+        Extract all function/method call sites with precise LSP-compatible locations.
+
+        This is a second parse specifically for LSP integration. Returns location
+        data that scan_file() discards for performance.
+        """
+        from domain import CallSite
+
+        with open(file_path, "r") as f:
+            content = f.read()
+
+        tree = self.parser.parse(bytes(content, "utf8"))
+        cursor = QueryCursor(self.call_query)
+        captures_dict = cursor.captures(tree.root_node)
+
+        call_sites = []
+        for capture_name, nodes in captures_dict.items():
+            for node in nodes:
+                call_name = node.text.decode("utf-8")
+                if call_name in PYTHON_BUILTINS:
+                    continue
+                call_sites.append(CallSite.from_node(node, file_path))
+
+        return call_sites
 
     def scan_file(self, file_path: str) -> CMMEntity:
         """Scans a file and returns a CMMEntity."""
         with open(file_path, "r") as f:
             content = f.read()
-        
+
         tree = self.parser.parse(bytes(content, "utf8"))
         cursor = QueryCursor(self.cmm_query)
         captures_dict = cursor.captures(tree.root_node)
@@ -104,7 +163,11 @@ class TreeSitterParser(ParserPort):
 
         # Pass 2: Populate entity metadata (docstrings, base classes, calls, imports)
         for node, capture_name in captures:
-            if capture_name in ["class.docstring", "function.docstring", "decorated_function.docstring"]:
+            if capture_name in [
+                "class.docstring",
+                "function.docstring",
+                "decorated_function.docstring",
+            ]:
                 self._add_docstring(node, node_to_entity)
             elif capture_name == "class.bases":
                 self._add_base_classes(node, node_to_entity)
@@ -118,7 +181,7 @@ class TreeSitterParser(ParserPort):
 
         # Collect root-level entities (not nested)
         final_entities = [e for e in node_to_entity.values() if not e.get("_is_nested")]
-        
+
         # Clean up internal flags
         for e in final_entities:
             e.pop("_is_nested", None)
@@ -141,34 +204,44 @@ class TreeSitterParser(ParserPort):
                 break
             parent = parent.parent
 
-    def _create_class_entity(self, node: Node, node_to_entity: Dict[int, Dict[str, Any]]):
+    def _create_class_entity(
+        self, node: Node, node_to_entity: Dict[int, Dict[str, Any]]
+    ):
         """Create a class entity."""
         class_name = node.text.decode()
         class_node = node.parent  # identifier -> class_definition
-        
+
         entity = {
             "type": "class",
             "name": class_name,
+            "line_start": class_node.start_point[0],
+            "line_end": class_node.end_point[0],
             "methods": [],
             "docstring": "",
-            "dependencies": []
+            "dependencies": [],
         }
         node_to_entity[class_node.id] = entity
 
-    def _create_function_entity(self, node: Node, node_to_entity: Dict[int, Dict[str, Any]], 
-                                decorator_map: Dict[int, List[str]]):
+    def _create_function_entity(
+        self,
+        node: Node,
+        node_to_entity: Dict[int, Dict[str, Any]],
+        decorator_map: Dict[int, List[str]],
+    ):
         """Create a function/method entity."""
         function_name = node.text.decode()
         func_node = node.parent  # identifier -> function_definition
-        
+
         entity = {
             "type": "function",
             "name": function_name,
+            "line_start": func_node.start_point[0],
+            "line_end": func_node.end_point[0],
             "docstring": "",
             "method_kind": "instance",
-            "dependencies": []
+            "dependencies": [],
         }
-        
+
         # Check for decorators to determine method kind
         if func_node.id in decorator_map:
             decorators = decorator_map[func_node.id]
@@ -176,7 +249,7 @@ class TreeSitterParser(ParserPort):
                 entity["method_kind"] = "static"
             elif "classmethod" in decorators:
                 entity["method_kind"] = "class"
-        
+
         node_to_entity[func_node.id] = entity
 
     def _add_docstring(self, node: Node, node_to_entity: Dict[int, Dict[str, Any]]):
@@ -185,7 +258,7 @@ class TreeSitterParser(ParserPort):
         # Navigate: string -> expression_statement -> block -> definition
         body_block = node.parent.parent
         def_node = body_block.parent
-        
+
         entity = node_to_entity.get(def_node.id)
         if entity:
             entity["docstring"] = docstring
@@ -196,33 +269,33 @@ class TreeSitterParser(ParserPort):
         entity = node_to_entity.get(class_node.id)
         if not entity:
             return
-        
+
         # Extract base class names from argument_list node
         for child in node.children:
             if child.type == "identifier":
                 base_class = child.text.decode()
-                entity["dependencies"].append({
-                    "name": base_class,
-                    "rel_type": "inherits"
-                })
+                entity["dependencies"].append(
+                    {"name": base_class, "rel_type": "inherits"}
+                )
             elif child.type == "attribute":
                 # Handle qualified names like module.ClassName
                 base_class = child.text.decode()
-                entity["dependencies"].append({
-                    "name": base_class,
-                    "rel_type": "inherits"
-                })
+                entity["dependencies"].append(
+                    {"name": base_class, "rel_type": "inherits"}
+                )
 
-    def _extract_calls_from_body(self, body_node: Node, node_to_entity: Dict[int, Dict[str, Any]]):
+    def _extract_calls_from_body(
+        self, body_node: Node, node_to_entity: Dict[int, Dict[str, Any]]
+    ):
         """Extract function/method calls from body and add as dependencies."""
         func_node = body_node.parent
         entity = node_to_entity.get(func_node.id)
         if not entity:
             return
-        
+
         cursor = QueryCursor(self.call_query)
         captures = cursor.captures(body_node)
-        
+
         # Collect unique call names
         call_names = set()
         for capture_name, nodes in captures.items():
@@ -231,55 +304,65 @@ class TreeSitterParser(ParserPort):
                 # Filter out Python builtins
                 if call_name not in PYTHON_BUILTINS:
                     call_names.add(call_name)
-        
+
         # Add as dependencies
         for call_name in call_names:
-            entity["dependencies"].append({
-                "name": call_name,
-                "rel_type": "calls"
-            })
-        
+            entity["dependencies"].append({"name": call_name, "rel_type": "calls"})
+
         if self.debug_mode:
             print(f"[TRACE] Body for {entity['name']}:\n{body_node.text.decode()}\n")
 
-    def _add_import_dependency(self, node: Node, node_to_entity: Dict[int, Dict[str, Any]], 
-                               captures: List[tuple]):
+    def _add_import_dependency(
+        self,
+        node: Node,
+        node_to_entity: Dict[int, Dict[str, Any]],
+        captures: List[tuple],
+    ):
         """Add import as a file-level dependency."""
         module_name = node.text.decode()
-        
+
         # Find the top-level module entity (if we create one) or attach to first function/class
         # For simplicity, we'll create a synthetic "module" entity if none exists
         # Or we can skip this for now since imports are file-level, not entity-level
-        # 
+        #
         # Decision: Skip for now. Imports are file-level metadata, not entity-level.
         # We can add a "module" entity type in a future sprint if needed.
         pass
 
-    def _build_hierarchy(self, captures: List[tuple], node_to_entity: Dict[int, Dict[str, Any]]):
+    def _build_hierarchy(
+        self, captures: List[tuple], node_to_entity: Dict[int, Dict[str, Any]]
+    ):
         """Build class-method hierarchy by nesting methods inside classes."""
         # Clear existing methods lists
         for entity in node_to_entity.values():
             if entity["type"] == "class":
                 entity["methods"] = []
-        
+
         # Iterate over function/class name captures to establish parent-child relationships
         for node, capture_name in captures:
-            if capture_name not in ["class.name", "function.name", "decorated_function.name"]:
+            if capture_name not in [
+                "class.name",
+                "function.name",
+                "decorated_function.name",
+            ]:
                 continue
-            
+
             def_node = node.parent  # identifier -> definition
             if def_node.id not in node_to_entity:
                 continue
-            
+
             entity = node_to_entity[def_node.id]
-            
+
             # Walk up the tree to find parent class
             current = def_node.parent
             while current:
                 if current.id in node_to_entity:
                     parent_entity = node_to_entity[current.id]
                     # If parent is a class and child is a function, nest it
-                    if parent_entity["type"] == "class" and entity["type"] == "function":
+                    if (
+                        parent_entity["type"] == "class"
+                        and entity["type"] == "function"
+                    ):
                         if entity not in parent_entity["methods"]:
                             parent_entity["methods"].append(entity)
                         entity["_is_nested"] = True
