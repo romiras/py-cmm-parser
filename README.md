@@ -109,6 +109,33 @@ sqlite3 src/cmm.db "SELECT type, COUNT(*) FROM entities_v3 GROUP BY type;"
 sqlite3 src/cmm.db "SELECT from_id, to_name, rel_type FROM relations LIMIT 10;"
 ```
 
+## Testing
+
+The project uses `pytest` for testing. All test commands should be executed from the `src/` directory to ensure proper dependency loading via `uv`.
+
+### Run All Tests
+```bash
+cd src
+export PYTHONPATH=$PYTHONPATH:.
+uv run pytest .. -v
+```
+
+### Run Specific Test Suites
+
+**Unit Tests (Parser, Storage, LSP Client)**:
+```bash
+cd src
+uv run pytest test_sqlite_storage.py -v
+uv run pytest test_lsp_client.py -v
+```
+
+**Integration Tests**:
+```bash
+cd src
+export PYTHONPATH=$PYTHONPATH:.
+uv run pytest ../tests/test_lsp_integration.py -v
+```
+
 ## Architecture
 
 ### Hexagonal Architecture (Ports & Adapters)
