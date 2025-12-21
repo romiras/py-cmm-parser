@@ -4,11 +4,11 @@ A Python-based Canonical Metadata Model (CMM) parser that extracts structured in
 
 ## Features
 
-- **Tree-sitter Parsing**: Uses Tree-sitter 0.25.x for robust Python code parsing.
+- **Tree-sitter Parsing**: Uses [Tree-sitter](https://tree-sitter.github.io/tree-sitter/) for robust Python code parsing.
 - **Deep Method Analysis**: Traverses method bodies to extract internal calls and dependencies.
 - **Normalization**: Maps Python-specific constructs (methods, decorators) to language-neutral CMM types.
-- **Relational-Graph Model**: Stores entities in a hierarchical structure with typed relations (**v0.4**).
-- **Semantic Layer**: High-fidelity LSP client foundation for deterministic linking via Pyright.
+- **Relational-Graph Model**: Stores entities in a hierarchical structure with typed relations.
+- **Semantic Layer**: High-fidelity LSP client foundation for deterministic linking via [Pyright](https://github.com/microsoft/pyright).
 - **Hybrid Resolution**: Combines fast lazy resolution with compiler-grade accuracy for verified links.
 - **Rich CLI**: Beautiful terminal output with progress indicators and typed dependency tables.
 
